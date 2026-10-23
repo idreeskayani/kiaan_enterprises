@@ -1,0 +1,48 @@
+import {
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
+import { Role } from '@prisma/client';
+import * as bcrypt from 'bcrypt';
+import { PrismaService } from '../prisma/prisma.service.js';
+
+@Injectable()
+export class AuthService {
+  constructor(
+    private prisma: PrismaService,
+    private jwt: JwtService,
+  ) {}
+
+  // Only works while there are zero users: creates the first ADMIN.
+  async bootstrapAdmin(email: string, password: string) {
+    if ((await this.prisma.user.count()) > 0) {
+      throw new ForbiddenException('Admin already exists. Log in instead.');
+    }
+    return this.createUser(email, password, Role.ADMIN);
+  }
+
+  async createUser(email: string, password: string, role: Role) {
+    const exists = await this.prisma.user.findUnique({ where: { email } });
+    if (exists) throw new ConflictException('Email already registered');
+    return this.prisma.user.create({
+      data: { email, password: await bcrypt.hash(password, 10), role },
+      select: { id: true, email: true, role: true },
+    });
+  }
+
+  async login(email: string, password: string) {
+    const user = await this.prisma.user.findUnique({ where: { email } });
+    if (!user || !(await bcrypt.compare(password, user.password))) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+    const accessToken = await this.jwt.signAsync({
+      sub: user.id,
+      email: user.email,
+      role: user.role,
+    });
+    return { accessToken, user: { id: user.id, email: user.email, role: user.role } };
+  }
+}

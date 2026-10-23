@@ -1,0 +1,142 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  OPERATOR
+  ACCOUNTANT
+}
+
+enum Mode {
+  AIR
+  SEA
+  ROAD
+}
+
+enum ShipmentStatus {
+  BOOKED
+  IN_TRANSIT
+  LANDED
+  AWAITING_GATEPASS
+  GATEPASS_ISSUED
+  DELIVERED
+  ON_HOLD
+  CUSTOMS_EXAM
+  CANCELLED
+}
+
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  PAID
+  CANCELLED
+}
+
+model User {
+  id        String          @id @default(uuid())
+  email     String          @unique
+  password  String
+  role      Role            @default(OPERATOR)
+  createdAt DateTime        @default(now())
+  history   StatusHistory[]
+}
+
+model Customer {
+  id        String     @id @default(uuid())
+  name      String
+  phone     String?
+  address   String?
+  taxNumber String?
+  shipments Shipment[]
+}
+
+model Shipment {
+  id          String          @id @default(uuid())
+  refNo       String          @unique
+  customerId  String
+  customer    Customer        @relation(fields: [customerId], references: [id])
+  mode        Mode
+  origin      String
+  destination String
+  hsCodeId    String?
+  hsCode      HsCode?         @relation(fields: [hsCodeId], references: [id])
+  goodsValue  Decimal         @db.Decimal(14, 2)
+  insurance   Decimal         @default(0) @db.Decimal(14, 2)
+  status      ShipmentStatus  @default(BOOKED)
+  blAwbNo     String?
+  eta         DateTime?
+  items       ShipmentItem[]
+  history     StatusHistory[]
+  invoice     Invoice?
+  createdAt   DateTime        @default(now())
+}
+
+model ShipmentItem {
+  id         String   @id @default(uuid())
+  shipmentId String
+  shipment   Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  lengthCm   Decimal  @db.Decimal(10, 2)
+  widthCm    Decimal  @db.Decimal(10, 2)
+  heightCm   Decimal  @db.Decimal(10, 2)
+  weightKg   Decimal  @db.Decimal(10, 2)
+  qty        Int      @default(1)
+}
+
+model RateCard {
+  id          String  @id @default(uuid())
+  mode        Mode
+  origin      String
+  destination String
+  ratePerUnit Decimal @db.Decimal(10, 2)
+  minCharge   Decimal @default(0) @db.Decimal(10, 2)
+  fuelPct     Decimal @default(0) @db.Decimal(5, 2)
+  handling    Decimal @default(0) @db.Decimal(10, 2)
+
+  @@unique([mode, origin, destination])
+}
+
+model HsCode {
+  id          String     @id @default(uuid())
+  code        String     @unique
+  description String
+  dutyPct     Decimal    @db.Decimal(5, 2)
+  salesTaxPct Decimal    @db.Decimal(5, 2)
+  whtPct      Decimal    @default(0) @db.Decimal(5, 2)
+  shipments   Shipment[]
+}
+
+model Invoice {
+  id         String        @id @default(uuid())
+  invoiceNo  String        @unique
+  shipmentId String        @unique
+  shipment   Shipment      @relation(fields: [shipmentId], references: [id])
+  status     InvoiceStatus @default(DRAFT)
+  total      Decimal       @db.Decimal(14, 2)
+  lines      InvoiceLine[]
+  issuedAt   DateTime      @default(now())
+}
+
+model InvoiceLine {
+  id        String  @id @default(uuid())
+  invoiceId String
+  invoice   Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  label     String
+  amount    Decimal @db.Decimal(14, 2)
+}
+
+model StatusHistory {
+  id         String         @id @default(uuid())
+  shipmentId String
+  shipment   Shipment       @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  status     ShipmentStatus
+  note       String?
+  userId     String
+  user       User           @relation(fields: [userId], references: [id])
+  at         DateTime       @default(now())
+}
