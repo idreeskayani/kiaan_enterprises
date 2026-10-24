@@ -1,6 +1,5 @@
-import { IsEnum } from 'class-validator';
-import { InvoiceStatus } from '@prisma/client';
+import { IsIn } from 'class-validator';
 
 export class UpdateInvoiceStatusDto {
-  @IsEnum(InvoiceStatus) status: InvoiceStatus;
+  @IsIn(['PAID', 'UNPAID']) status: 'PAID' | 'UNPAID';
 }

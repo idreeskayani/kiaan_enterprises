@@ -57,24 +57,35 @@ model Customer {
 }
 
 model Shipment {
-  id          String          @id @default(uuid())
-  refNo       String          @unique
-  customerId  String
-  customer    Customer        @relation(fields: [customerId], references: [id])
-  mode        Mode
-  origin      String
-  destination String
-  hsCodeId    String?
-  hsCode      HsCode?         @relation(fields: [hsCodeId], references: [id])
-  goodsValue  Decimal         @db.Decimal(14, 2)
-  insurance   Decimal         @default(0) @db.Decimal(14, 2)
-  status      ShipmentStatus  @default(BOOKED)
-  blAwbNo     String?
-  eta         DateTime?
-  items       ShipmentItem[]
-  history     StatusHistory[]
-  invoice     Invoice?
-  createdAt   DateTime        @default(now())
+  id              String          @id @default(uuid())
+  refNo           String          @unique
+  customerId      String
+  customer        Customer        @relation(fields: [customerId], references: [id])
+  mode            Mode
+  origin          String
+  destination     String
+  viaPoints       String[]        @default([])
+  hsCodeId        String?
+  hsCode          HsCode?         @relation(fields: [hsCodeId], references: [id])
+  goodsValue      Decimal         @db.Decimal(14, 2)
+  insurance       Decimal         @default(0) @db.Decimal(14, 2)
+  status          ShipmentStatus  @default(BOOKED)
+  blAwbNo         String?
+  eta             DateTime?
+  ratePerUnit     Decimal?        @db.Decimal(10, 2)
+  minCharge       Decimal?        @db.Decimal(10, 2)
+  fuelPct         Decimal?        @db.Decimal(5, 2)
+  handling        Decimal?        @db.Decimal(10, 2)
+  volDivisor      Int?
+  freightOverride Decimal?        @db.Decimal(14, 2)
+  doCharges       Decimal?        @db.Decimal(14, 2)
+  dutyPct         Decimal?        @db.Decimal(5, 2)
+  salesTaxPct     Decimal?        @db.Decimal(5, 2)
+  whtPct          Decimal?        @db.Decimal(5, 2)
+  items           ShipmentItem[]
+  history         StatusHistory[]
+  invoice         Invoice?
+  createdAt       DateTime        @default(now())
 }
 
 model ShipmentItem {

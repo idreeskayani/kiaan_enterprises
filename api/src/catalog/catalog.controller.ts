@@ -54,7 +54,7 @@ export class CatalogController {
   }
 
   @Post('rate-cards')
-  @Roles(Role.ADMIN)
+  @Roles(Role.ADMIN,Role.OPERATOR)
   createRateCard(@Body() dto: CreateRateCardDto) {
     return this.unique(
       () => this.prisma.rateCard.create({ data: dto }),
@@ -63,7 +63,7 @@ export class CatalogController {
   }
 
   @Patch('rate-cards/:id')
-  @Roles(Role.ADMIN)
+  @Roles(Role.ADMIN,Role.OPERATOR)
   updateRateCard(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateRateCardDto,
@@ -77,7 +77,7 @@ export class CatalogController {
   }
 
   @Post('hs-codes')
-  @Roles(Role.ADMIN)
+  @Roles(Role.ADMIN,Role.OPERATOR)
   createHsCode(@Body() dto: CreateHsCodeDto) {
     return this.unique(
       () => this.prisma.hsCode.create({ data: dto }),

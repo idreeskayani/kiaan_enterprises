@@ -4,12 +4,14 @@ import {
   IsDateString,
   IsEnum,
   IsInt,
+  IsNotEmpty,
   IsNumber,
   IsOptional,
   IsString,
   IsUUID,
   Min,
   ValidateNested,
+  IsArray,
 } from 'class-validator';
 import { Mode, ShipmentStatus } from '@prisma/client';
 
@@ -21,13 +23,36 @@ export class ItemDto {
   @IsInt() @Min(1) qty: number;
 }
 
+export class RateDto {
+  @IsNumber() @Min(0) ratePerUnit: number;
+  @IsOptional() @IsNumber() @Min(0) minCharge?: number;
+  @IsOptional() @IsNumber() @Min(0) fuelPct?: number;
+  @IsOptional() @IsNumber() @Min(0) handling?: number;
+  @IsOptional() @IsInt() @Min(1) volDivisor?: number;
+}
+
+export class TaxDto {
+  @IsNumber() @Min(0) dutyPct: number;
+  @IsNumber() @Min(0) salesTaxPct: number;
+  @IsNumber() @Min(0) whtPct: number;
+}
+
 export class QuoteDto {
   @IsEnum(Mode) mode: Mode;
-  @IsString() origin: string;
-  @IsString() destination: string;
+  @IsString() @IsNotEmpty() origin: string;
+  @IsString() @IsNotEmpty() destination: string;
+  @IsOptional() @IsArray() @IsString({ each: true }) viaPoints?: string[];
   @IsOptional() @IsUUID() hsCodeId?: string;
   @IsNumber() @Min(0) goodsValue: number;
   @IsOptional() @IsNumber() @Min(0) insurance?: number;
+
+  // Your own freight settings. If omitted, the saved rate card for the route is used.
+  @IsOptional() @ValidateNested() @Type(() => RateDto) rate?: RateDto;
+  // Fixed total freight. Overrides the rate calculation.
+  @IsOptional() @IsNumber() @Min(0) freightOverride?: number;
+  @IsOptional() @IsNumber() @Min(0) doCharges?: number;
+  // Duty and tax percentages. If omitted, the HS code's percentages are used.
+  @IsOptional() @ValidateNested() @Type(() => TaxDto) tax?: TaxDto;
 
   @ValidateNested({ each: true })
   @Type(() => ItemDto)

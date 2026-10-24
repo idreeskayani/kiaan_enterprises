@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseUUIDPipe,
@@ -10,10 +11,11 @@ import {
   StreamableFile,
   UseGuards,
 } from '@nestjs/common';
-import { InvoiceStatus, Role } from '@prisma/client';
+import { Role } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { Roles } from '../auth/roles.decorator.js';
 import { RolesGuard } from '../auth/roles.guard.js';
+import { CreateShipmentDto } from '../shipments/dto.js';
 import { UpdateInvoiceStatusDto } from './dto.js';
 import { InvoicesService } from './invoices.service.js';
 
@@ -22,15 +24,26 @@ import { InvoicesService } from './invoices.service.js';
 export class InvoicesController {
   constructor(private invoices: InvoicesService) {}
 
+  // Preview only: builds a PDF from the form data and saves nothing.
+  @Post('preview')
+  async preview(@Body() dto: CreateShipmentDto) {
+    const { buffer, filename } = await this.invoices.preview(dto);
+    return new StreamableFile(buffer, {
+      type: 'application/pdf',
+      disposition: `inline; filename="${filename}"`,
+    });
+  }
+
   @Post('shipment/:shipmentId')
   @Roles(Role.ADMIN, Role.ACCOUNTANT)
   create(@Param('shipmentId', ParseUUIDPipe) shipmentId: string) {
     return this.invoices.createForShipment(shipmentId);
   }
 
+  // ?payment=PAID or ?payment=UNPAID (leave empty for all)
   @Get()
-  list(@Query('status') status?: InvoiceStatus) {
-    return this.invoices.list(status);
+  list(@Query('payment') payment?: string) {
+    return this.invoices.list(payment);
   }
 
   @Get(':id/pdf')
@@ -54,5 +67,11 @@ export class InvoicesController {
     @Body() dto: UpdateInvoiceStatusDto,
   ) {
     return this.invoices.updateStatus(id, dto.status);
+  }
+
+  @Delete(':id')
+  @Roles(Role.ADMIN, Role.ACCOUNTANT)
+  remove(@Param('id', ParseUUIDPipe) id: string) {
+    return this.invoices.remove(id);
   }
 }

@@ -1,10 +1,24 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InvoiceStatus, ShipmentStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
+import type { CreateShipmentDto } from '../shipments/dto.js';
 import { ShipmentsService } from '../shipments/shipments.service.js';
 import { buildInvoicePdf } from './invoice-pdf.js';
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
+
+type LineSource = {
+  base: number;
+  fuel: number;
+  handling: number;
+  doCharges: number;
+  duty: number;
+  salesTax: number;
+  wht: number;
+  cbm: number;
+  chargeableKg: number;
+  freightOverridden: boolean;
+};
 
 @Injectable()
 export class InvoicesService {
@@ -12,6 +26,36 @@ export class InvoicesService {
     private prisma: PrismaService,
     private shipments: ShipmentsService,
   ) {}
+
+  private buildLines(mode: string, q: LineSource) {
+    const freightLabel = q.freightOverridden
+      ? 'Freight'
+      : mode === 'SEA'
+        ? `Freight (${q.cbm} CBM)`
+        : `Freight (${q.chargeableKg} kg chargeable)`;
+
+    return [
+      { label: freightLabel, amount: q.base },
+      { label: 'Fuel surcharge', amount: q.fuel },
+      { label: 'Handling', amount: q.handling },
+      { label: 'DO charges', amount: q.doCharges },
+      { label: 'Customs duty', amount: q.duty },
+      { label: 'Sales tax', amount: q.salesTax },
+      { label: 'Withholding tax', amount: q.wht },
+    ].filter((l) => l.amount > 0);
+  }
+
+  // Next number after the highest existing one (safe after deletions).
+  private async nextInvoiceNo() {
+    const prefix = `INV-${new Date().getFullYear()}-`;
+    const last = await this.prisma.invoice.findFirst({
+      where: { invoiceNo: { startsWith: prefix } },
+      orderBy: { invoiceNo: 'desc' },
+      select: { invoiceNo: true },
+    });
+    const n = last ? Number(last.invoiceNo.slice(prefix.length)) || 0 : 0;
+    return `${prefix}${String(n + 1).padStart(5, '0')}`;
+  }
 
   async createForShipment(shipmentId: string) {
     const shipment = await this.shipments.findOne(shipmentId);
@@ -21,23 +65,9 @@ export class InvoicesService {
     }
 
     const q = await this.shipments.quoteForShipment(shipmentId);
-    const freightLabel =
-      shipment.mode === 'SEA'
-        ? `Freight (${q.cbm} CBM)`
-        : `Freight (${q.chargeableKg} kg chargeable)`;
-
-    const lines = [
-      { label: freightLabel, amount: q.base },
-      { label: 'Fuel surcharge', amount: q.fuel },
-      { label: 'Handling', amount: q.handling },
-      { label: 'Customs duty', amount: q.duty },
-      { label: 'Sales tax', amount: q.salesTax },
-      { label: 'Withholding tax', amount: q.wht },
-    ].filter((l) => l.amount > 0);
-
+    const lines = this.buildLines(shipment.mode, q);
     const total = r2(lines.reduce((s, l) => s + l.amount, 0));
-    const count = await this.prisma.invoice.count();
-    const invoiceNo = `INV-${new Date().getFullYear()}-${String(count + 1).padStart(5, '0')}`;
+    const invoiceNo = await this.nextInvoiceNo();
 
     return this.prisma.invoice.create({
       data: { invoiceNo, shipmentId, total, lines: { create: lines } },
@@ -45,9 +75,49 @@ export class InvoicesService {
     });
   }
 
-  list(status?: InvoiceStatus) {
+  // Builds a PDF from the form data. Nothing is saved.
+  async preview(dto: CreateShipmentDto) {
+    const customer = await this.prisma.customer.findUnique({ where: { id: dto.customerId } });
+    if (!customer) throw new NotFoundException('Customer not found');
+
+    const q = await this.shipments.quote(dto);
+    const lines = this.buildLines(dto.mode, q);
+    const total = r2(lines.reduce((s, l) => s + l.amount, 0));
+
+    const inv = {
+      invoiceNo: 'PREVIEW',
+      status: 'PREVIEW',
+      issuedAt: new Date(),
+      total,
+      lines,
+      shipment: {
+        refNo: 'Not saved',
+        mode: dto.mode,
+        origin: dto.origin.trim(),
+        destination: dto.destination.trim(),
+        viaPoints: (dto.viaPoints ?? []).map((p) => p.trim()).filter(Boolean),
+        blAwbNo: dto.blAwbNo ?? null,
+        customer: {
+          name: customer.name,
+          address: customer.address,
+          phone: customer.phone,
+          taxNumber: customer.taxNumber,
+        },
+      },
+    };
+    const buffer = await buildInvoicePdf(inv);
+    return { buffer, filename: 'invoice-preview.pdf' };
+  }
+
+  list(payment?: string) {
+    const where =
+      payment === 'PAID'
+        ? { status: InvoiceStatus.PAID }
+        : payment === 'UNPAID'
+          ? { status: { not: InvoiceStatus.PAID } }
+          : undefined;
     return this.prisma.invoice.findMany({
-      where: status ? { status } : undefined,
+      where,
       include: { shipment: { select: { refNo: true, customer: { select: { name: true } } } } },
       orderBy: { issuedAt: 'desc' },
     });
@@ -62,9 +132,19 @@ export class InvoicesService {
     return invoice;
   }
 
-  async updateStatus(id: string, status: InvoiceStatus) {
+  // Payment status only. This never touches the shipment's status.
+  async updateStatus(id: string, status: 'PAID' | 'UNPAID') {
     await this.findOne(id);
-    return this.prisma.invoice.update({ where: { id }, data: { status } });
+    return this.prisma.invoice.update({
+      where: { id },
+      data: { status: status === 'PAID' ? InvoiceStatus.PAID : InvoiceStatus.ISSUED },
+    });
+  }
+
+  async remove(id: string) {
+    await this.findOne(id);
+    await this.prisma.invoice.delete({ where: { id } });
+    return { deleted: true };
   }
 
   async pdf(id: string) {

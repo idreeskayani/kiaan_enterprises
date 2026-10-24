@@ -1,8 +1,25 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { ShipmentStatus } from '@prisma/client';
+import type { Mode } from '@prisma/client';
 import { PricingService } from '../pricing/pricing.service.js';
+import type { PricingRate } from '../pricing/pricing.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CreateShipmentDto, QuoteDto } from './dto.js';
+
+type ResolveInput = {
+  mode: Mode;
+  origin: string;
+  destination: string;
+  rate?: {
+    ratePerUnit: number;
+    minCharge?: number;
+    fuelPct?: number;
+    handling?: number;
+    volDivisor?: number | null;
+  } | null;
+  freightOverride?: number | null;
+  doCharges?: number | null;
+};
 
 @Injectable()
 export class ShipmentsService {
@@ -11,58 +28,75 @@ export class ShipmentsService {
     private pricing: PricingService,
   ) {}
 
-  async quote(dto: QuoteDto) {
-    const rate = await this.prisma.rateCard.findUnique({
+  // Works out the rate to use: the user's own values first,
+  // then the saved rate card as a fallback.
+  private async resolveRate(i: ResolveInput): Promise<PricingRate> {
+    const doCharges = i.doCharges ?? 0;
+
+    if (i.rate || i.freightOverride != null) {
+      return {
+        mode: i.mode,
+        ratePerUnit: i.rate?.ratePerUnit ?? 0,
+        minCharge: i.rate?.minCharge ?? 0,
+        fuelPct: i.rate?.fuelPct ?? 0,
+        handling: i.rate?.handling ?? 0,
+        volDivisor: i.rate?.volDivisor ?? null,
+        freightOverride: i.freightOverride ?? null,
+        doCharges,
+      };
+    }
+
+    const card = await this.prisma.rateCard.findUnique({
       where: {
         mode_origin_destination: {
-          mode: dto.mode,
-          origin: dto.origin,
-          destination: dto.destination,
+          mode: i.mode,
+          origin: i.origin,
+          destination: i.destination,
         },
       },
     });
-    if (!rate) {
+    if (!card) {
       throw new NotFoundException(
-        `No rate card for ${dto.mode} ${dto.origin} -> ${dto.destination}`,
+        `No saved rate for ${i.mode} ${i.origin} -> ${i.destination}. Enter a rate or freight amount.`,
       );
     }
-    const hs = dto.hsCodeId
-      ? await this.prisma.hsCode.findUnique({ where: { id: dto.hsCodeId } })
-      : null;
-
-    return this.pricing.calculate(
-      dto.items,
-      {
-        mode: rate.mode,
-        ratePerUnit: Number(rate.ratePerUnit),
-        minCharge: Number(rate.minCharge),
-        fuelPct: Number(rate.fuelPct),
-        handling: Number(rate.handling),
-      },
-      dto.goodsValue,
-      dto.insurance ?? 0,
-      hs && {
-        dutyPct: Number(hs.dutyPct),
-        salesTaxPct: Number(hs.salesTaxPct),
-        whtPct: Number(hs.whtPct),
-      },
-    );
+    return {
+      mode: card.mode,
+      ratePerUnit: Number(card.ratePerUnit),
+      minCharge: Number(card.minCharge),
+      fuelPct: Number(card.fuelPct),
+      handling: Number(card.handling),
+      doCharges,
+    };
   }
 
-  create(dto: CreateShipmentDto, userId: string) {
+  async quote(dto: QuoteDto) {
+    const rate = await this.resolveRate(dto);
+    return this.pricing.calculate(dto.items, rate, dto.goodsValue, dto.insurance ?? 0, null);
+  }
+
+  async create(dto: CreateShipmentDto, userId: string) {
+    const rate = await this.resolveRate(dto);
     const refNo = `SH-${Date.now().toString(36).toUpperCase()}`;
     return this.prisma.shipment.create({
       data: {
         refNo,
         customerId: dto.customerId,
         mode: dto.mode,
-        origin: dto.origin,
-        destination: dto.destination,
-        hsCodeId: dto.hsCodeId,
+        origin: dto.origin.trim(),
+        destination: dto.destination.trim(),
+        viaPoints: (dto.viaPoints ?? []).map((p) => p.trim()).filter(Boolean),
         goodsValue: dto.goodsValue,
         insurance: dto.insurance ?? 0,
         blAwbNo: dto.blAwbNo,
         eta: dto.eta ? new Date(dto.eta) : undefined,
+        ratePerUnit: rate.ratePerUnit,
+        minCharge: rate.minCharge,
+        fuelPct: rate.fuelPct,
+        handling: rate.handling,
+        volDivisor: rate.volDivisor ?? undefined,
+        freightOverride: rate.freightOverride ?? undefined,
+        doCharges: rate.doCharges ?? 0,
         items: { create: dto.items },
         history: {
           create: { status: ShipmentStatus.BOOKED, note: 'Shipment booked', userId },
@@ -95,23 +129,39 @@ export class ShipmentsService {
     return shipment;
   }
 
+  // Re-prices a saved shipment from the rate stored on it.
   async quoteForShipment(id: string) {
     const s = await this.findOne(id);
-    return this.quote({
+    const rate = await this.resolveRate({
       mode: s.mode,
       origin: s.origin,
       destination: s.destination,
-      hsCodeId: s.hsCodeId ?? undefined,
-      goodsValue: Number(s.goodsValue),
-      insurance: Number(s.insurance),
-      items: s.items.map((i) => ({
+      rate:
+        s.ratePerUnit !== null
+          ? {
+              ratePerUnit: Number(s.ratePerUnit),
+              minCharge: Number(s.minCharge ?? 0),
+              fuelPct: Number(s.fuelPct ?? 0),
+              handling: Number(s.handling ?? 0),
+              volDivisor: s.volDivisor,
+            }
+          : null,
+      freightOverride: s.freightOverride !== null ? Number(s.freightOverride) : null,
+      doCharges: s.doCharges !== null ? Number(s.doCharges) : 0,
+    });
+    return this.pricing.calculate(
+      s.items.map((i) => ({
         lengthCm: Number(i.lengthCm),
         widthCm: Number(i.widthCm),
         heightCm: Number(i.heightCm),
         weightKg: Number(i.weightKg),
         qty: i.qty,
       })),
-    });
+      rate,
+      Number(s.goodsValue),
+      Number(s.insurance),
+      null,
+    );
   }
 
   async updateStatus(id: string, status: ShipmentStatus, note: string | undefined, userId: string) {
@@ -125,7 +175,6 @@ export class ShipmentsService {
     return shipment;
   }
 
-  // Dashboard counts per status
   async summary() {
     const rows = await this.prisma.shipment.groupBy({
       by: ['status'],

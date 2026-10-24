@@ -11,6 +11,7 @@ export type PdfInvoice = {
     mode: string;
     origin: string;
     destination: string;
+    viaPoints?: string[];
     blAwbNo: string | null;
     customer: {
       name: string;
@@ -39,8 +40,8 @@ export function buildInvoicePdf(inv: PdfInvoice): Promise<Buffer> {
     doc.fontSize(10).font('Helvetica');
     doc.text(`No: ${inv.invoiceNo}`, 380, 76, { width: 165, align: 'right' });
     doc.text(`Date: ${inv.issuedAt.toISOString().slice(0, 10)}`, 380, 90, { width: 165, align: 'right' });
-    doc.text(`Status: ${inv.status}`, 380, 104, { width: 165, align: 'right' });
-
+    const payment = inv.status === 'PAID' ? 'PAID' : inv.status === 'PREVIEW' ? 'PREVIEW' : 'UNPAID';
+    doc.text(`Payment: ${payment}`, 380, 104, { width: 165, align: 'right' });
     doc.moveTo(50, 130).lineTo(545, 130).strokeColor('#999').stroke();
 
     // Bill to + shipment info
@@ -57,15 +58,15 @@ export function buildInvoicePdf(inv: PdfInvoice): Promise<Buffer> {
     doc.font('Helvetica');
     doc.text(`Ref: ${s.refNo}`, 330, 160);
     doc.text(`Mode: ${s.mode}`, 330, 174);
-    doc.text(`Route: ${s.origin} to ${s.destination}`, 330, 188, { width: 215 });
-    if (s.blAwbNo) doc.text(`BL/AWB: ${s.blAwbNo}`, 330, 202);
+    doc.text(`Route: ${[s.origin, ...(s.viaPoints ?? []), s.destination].join(' to ')}`, 330, 188, { width: 215 });
+    if (s.blAwbNo) doc.text(`BL/AWB: ${s.blAwbNo}`, 330, 216);
 
     // Table header
     let ty = Math.max(y, 225) + 25;
     doc.rect(50, ty, 495, 22).fill('#eeeeee');
     doc.fillColor('#000').font('Helvetica-Bold');
     doc.text('Description', 58, ty + 6, { width: 360 });
-    doc.text('Amount', 430, ty + 6, { width: 107, align: 'right' });
+    doc.text('Amount (PKR)', 430, ty + 6, { width: 107, align: 'right' });
     ty += 28;
 
     // Rows
