@@ -9,6 +9,7 @@ import {
 } from 'react-router-dom';
 import { getToken, setToken } from './api';
 import Dashboard from './pages/Dashboard';
+import ExchangeRates from './pages/ExchangeRates';
 import Invoices from './pages/Invoices';
 import Login from './pages/login';
 import NewShipment from './pages/NewShipment';
@@ -26,6 +27,7 @@ function Layout() {
         <NavLink to="/shipments" end>Shipments</NavLink>
         <NavLink to="/shipments/new">New shipment</NavLink>
         <NavLink to="/invoices">Invoices</NavLink>
+        <NavLink to="/rates">Exchange rates</NavLink>
         <button
           className="ghost"
           onClick={() => {
@@ -54,6 +56,7 @@ export default function App() {
           <Route path="shipments/new" element={<NewShipment />} />
           <Route path="shipments/:id" element={<ShipmentDetail />} />
           <Route path="invoices" element={<Invoices />} />
+          <Route path="rates" element={<ExchangeRates />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

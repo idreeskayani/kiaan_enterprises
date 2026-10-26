@@ -60,7 +60,10 @@ export default function ShipmentDetail() {
             <p><b>Route:</b> {[s.origin, ...(s.viaPoints ?? []), s.destination].join(' → ')}</p>
           </div>
           <div>
-            <p><b>BL/AWB:</b> {s.blAwbNo ?? '-'}</p>
+            <p><b>Master no:</b> {s.blAwbNo ?? '-'}</p>
+            <p><b>House no:</b> {s.hawbNo ?? '-'}</p>
+            <p><b>Flight / vessel:</b> {s.flight ?? '-'}</p>
+            {s.exRate && <p><b>Ex. rate:</b> {Number(s.exRate)} ({s.currency})</p>}
             <p><b>ETA:</b> {s.eta ? new Date(s.eta).toLocaleDateString() : '-'}</p>
             <p><b>Goods value:</b> {fmt(s.goodsValue)}</p>
           </div>

@@ -1,17 +1,19 @@
 import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
+  IsArray,
   IsDateString,
   IsEnum,
   IsInt,
   IsNotEmpty,
   IsNumber,
+  IsObject,
   IsOptional,
   IsString,
   IsUUID,
+  Matches,
   Min,
   ValidateNested,
-  IsArray,
 } from 'class-validator';
 import { Mode, ShipmentStatus } from '@prisma/client';
 
@@ -31,10 +33,13 @@ export class RateDto {
   @IsOptional() @IsInt() @Min(1) volDivisor?: number;
 }
 
-export class TaxDto {
-  @IsNumber() @Min(0) dutyPct: number;
-  @IsNumber() @Min(0) salesTaxPct: number;
-  @IsNumber() @Min(0) whtPct: number;
+export class ExtraChargeDto {
+  @IsString() @IsNotEmpty() label: string;
+  @IsNumber() @Min(0) amount: number;
+  // currency of this charge (defaults to the shipment currency)
+  @IsOptional() @Matches(/^[A-Za-z]{3}$/) currency?: string;
+  // PKR per 1 unit of that currency (needed when it differs from the shipment currency)
+  @IsOptional() @IsNumber() @Min(0) exRate?: number;
 }
 
 export class QuoteDto {
@@ -42,17 +47,28 @@ export class QuoteDto {
   @IsString() @IsNotEmpty() origin: string;
   @IsString() @IsNotEmpty() destination: string;
   @IsOptional() @IsArray() @IsString({ each: true }) viaPoints?: string[];
-  @IsOptional() @IsUUID() hsCodeId?: string;
-  @IsNumber() @Min(0) goodsValue: number;
-  @IsOptional() @IsNumber() @Min(0) insurance?: number;
+  @IsOptional() @IsNumber() @Min(0) goodsValue?: number;
 
-  // Your own freight settings. If omitted, the saved rate card for the route is used.
   @IsOptional() @ValidateNested() @Type(() => RateDto) rate?: RateDto;
-  // Fixed total freight. Overrides the rate calculation.
   @IsOptional() @IsNumber() @Min(0) freightOverride?: number;
+  @IsOptional() @IsString() freightLabel?: string;
+
+  // Freight is calculated in this currency and converted to PKR at exRate
+  @IsOptional() @Matches(/^[A-Za-z]{3}$/) currency?: string;
+  @IsOptional() @IsNumber() @Min(0) exRate?: number;
+
+  // D/O charges, always in PKR
   @IsOptional() @IsNumber() @Min(0) doCharges?: number;
-  // Duty and tax percentages. If omitted, the HS code's percentages are used.
-  @IsOptional() @ValidateNested() @Type(() => TaxDto) tax?: TaxDto;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ExtraChargeDto)
+  extraCharges?: ExtraChargeDto[];
+
+  // Optional invoice details: direction, airline, shipper, commodity, custRef,
+  // etd, mawbDate, hawbDate, doNo, doDate, igmNo, igmDate, beNo, beDate
+  @IsOptional() @IsObject() details?: Record<string, string>;
 
   @ValidateNested({ each: true })
   @Type(() => ItemDto)
@@ -63,6 +79,8 @@ export class QuoteDto {
 export class CreateShipmentDto extends QuoteDto {
   @IsUUID() customerId: string;
   @IsOptional() @IsString() blAwbNo?: string;
+  @IsOptional() @IsString() hawbNo?: string;
+  @IsOptional() @IsString() flight?: string;
   @IsOptional() @IsDateString() eta?: string;
 }
 

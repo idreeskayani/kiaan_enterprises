@@ -8,34 +8,36 @@ export function Badge({ status }: { status: string }) {
 }
 
 export function Breakdown({ q }: { q: any }) {
-  const rows: [string, number][] = [
-    [q.freightOverridden ? 'Freight (fixed amount)' : 'Base freight', q.base],
-    ['Fuel surcharge', q.fuel],
-    ['Handling', q.handling],
-    ['DO charges (PKR)', q.doCharges ?? 0],
-  ];
   return (
     <div className="card">
-      <h3>Charges</h3>
+      <h3>Invoice charges</h3>
       <p className="muted">
         Actual {q.actualKg} kg · Volumetric {q.volumetricKg} kg · Chargeable {q.chargeableKg} kg ·{' '}
         {q.cbm} CBM
       </p>
       <table>
+        <thead>
+          <tr>
+            <th>Particulars</th>
+            <th>Curr</th>
+            <th className="num">F/Amount</th>
+            <th className="num">Ex. rate</th>
+            <th className="num">Amount (PKR)</th>
+          </tr>
+        </thead>
         <tbody>
-          {rows.map(([name, value]) => (
-            <tr key={name}>
-              <td>{name}</td>
-              <td className="num">{fmt(value)}</td>
+          {q.lines.map((l: any, i: number) => (
+            <tr key={i}>
+              <td>{l.label}</td>
+              <td>{l.currency ?? 'PKR'}</td>
+              <td className="num">{l.foreign != null ? fmt(l.foreign) : ''}</td>
+              <td className="num">{l.rate ? Number(l.rate) : ''}</td>
+              <td className="num">{fmt(l.pkr)}</td>
             </tr>
           ))}
           <tr>
-            <td>
-              <b>Total freight (including DO charges)</b>
-            </td>
-            <td className="num">
-              <b>{fmt(q.total)}</b>
-            </td>
+            <td colSpan={4}><b>TOTAL</b></td>
+            <td className="num"><b>PKR {fmt(q.total)}</b></td>
           </tr>
         </tbody>
       </table>

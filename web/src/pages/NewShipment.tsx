@@ -4,16 +4,27 @@ import { api, openPdf, previewPdf } from '../api';
 import { Breakdown } from '../components';
 
 type Item = { lengthCm: string; widthCm: string; heightCm: string; weightKg: string; qty: string };
+type Extra = { label: string; amount: string; currency: string; exRate: string };
 const blank: Item = { lengthCm: '', widthCm: '', heightCm: '', weightKg: '', qty: '1' };
 const num = (s: string) => Number(s) || 0;
 const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
 const NEW = '__new__';
+const CURRENCIES = ['USD', 'GBP', 'EUR', 'AED', 'SAR', 'CNY', 'PKR'];
+const NAMES: Record<
+  string,
+  { master: string; house: string; carrier: string; line: string; freight: string }
+> = {
+  AIR: { master: 'MAWB No.', house: 'HAWB No.', carrier: 'Flight', line: 'Air Line', freight: 'Air Freight' },
+  SEA: { master: 'MBL No.', house: 'HBL No.', carrier: 'Vessel', line: 'Shipping Line', freight: 'Sea Freight' },
+  ROAD: { master: 'Waybill No.', house: 'Ref No.', carrier: 'Vehicle', line: 'Transporter', freight: 'Road Freight' },
+};
 
 export default function NewShipment() {
   const nav = useNavigate();
   const [customers, setCustomers] = useState<any[]>([]);
   const [rates, setRates] = useState<any[]>([]);
   const [past, setPast] = useState<any[]>([]);
+  const [fx, setFx] = useState<Record<string, number>>({});
 
   // customer
   const [customerSel, setCustomerSel] = useState('');
@@ -29,19 +40,27 @@ export default function NewShipment() {
   const [destination, setDestination] = useState('');
 
   // freight
+  const [freightLabel, setFreightLabel] = useState('');
+  const [currency, setCurrency] = useState('USD');
+  const [exRate, setExRate] = useState('');
   const [ratePerUnit, setRatePerUnit] = useState('');
   const [minCharge, setMinCharge] = useState('');
   const [fuelPct, setFuelPct] = useState('');
   const [handling, setHandling] = useState('');
   const [volDivisor, setVolDivisor] = useState('');
-  const [doCharges, setDoCharges] = useState('');
   const [freightOverride, setFreightOverride] = useState('');
+  const [doCharges, setDoCharges] = useState('');
+  const [extras, setExtras] = useState<Extra[]>([]);
   const [saveRate, setSaveRate] = useState(true);
 
   // shipment details
   const [goodsValue, setGoodsValue] = useState('');
   const [blAwbNo, setBlAwbNo] = useState('');
+  const [hawbNo, setHawbNo] = useState('');
+  const [flight, setFlight] = useState('');
   const [eta, setEta] = useState('');
+  const [det, setDet] = useState<Record<string, string>>({ direction: 'IMPORT' });
+  const [showMore, setShowMore] = useState(false);
   const [items, setItems] = useState<Item[]>([{ ...blank }]);
 
   const [quote, setQuote] = useState<any>(null);
@@ -49,16 +68,23 @@ export default function NewShipment() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    Promise.all([api('/customers'), api('/rate-cards'), api('/shipments')])
-      .then(([c, r, s]) => {
+    Promise.all([api('/customers'), api('/rate-cards'), api('/shipments'), api('/exchange-rates')])
+      .then(([c, r, s, e]) => {
         setCustomers(c);
         setRates(r);
         setPast(s);
+        setFx(Object.fromEntries(e.map((x: any) => [x.currency, Number(x.rate)])));
       })
-      .catch((e) => setError(e.message));
+      .catch((err) => setError(err.message));
   }, []);
 
+  // picking a currency fills in its saved exchange rate
+  useEffect(() => {
+    if (currency !== 'PKR') setExRate(fx[currency] ? String(fx[currency]) : '');
+  }, [currency, fx]);
+
   const customerId = customerSel && customerSel !== NEW ? customerSel : '';
+  const names = NAMES[mode] ?? NAMES.AIR;
 
   // places typed before (optional suggestions)
   const places = useMemo(() => {
@@ -97,7 +123,16 @@ export default function NewShipment() {
     (i) => num(i.lengthCm) > 0 && num(i.widthCm) > 0 && num(i.heightCm) > 0 && num(i.weightKg) > 0 && num(i.qty) >= 1,
   );
   const hasFreight = freightOverride !== '' || num(ratePerUnit) > 0;
-  const ready = !!origin.trim() && !!destination.trim() && itemsValid && hasFreight;
+  const exOk = currency === 'PKR' || num(exRate) > 0;
+  const extrasOk = extras.every(
+    (e) =>
+      !(e.label.trim() && num(e.amount) > 0) ||
+      e.currency === 'PKR' ||
+      e.currency === currency ||
+      num(e.exRate) > 0,
+  );
+  const ready =
+    !!origin.trim() && !!destination.trim() && itemsValid && hasFreight && exOk && extrasOk;
   const routeText = [origin, ...via, destination].map((p) => p.trim()).filter(Boolean).join(' → ');
 
   const body = () => ({
@@ -114,7 +149,26 @@ export default function NewShipment() {
       volDivisor: num(volDivisor) >= 1 ? Math.floor(num(volDivisor)) : undefined,
     },
     freightOverride: freightOverride !== '' ? num(freightOverride) : undefined,
+    freightLabel: freightLabel.trim() || undefined,
+    currency,
+    exRate: currency === 'PKR' ? undefined : num(exRate),
     doCharges: doCharges !== '' ? num(doCharges) : undefined,
+    extraCharges: extras
+      .filter((e) => e.label.trim() && num(e.amount) > 0)
+      .map((e) => ({
+        label: e.label.trim(),
+        amount: num(e.amount),
+        currency: e.currency,
+        exRate: e.currency !== 'PKR' && e.currency !== currency ? num(e.exRate) : undefined,
+      })),
+    blAwbNo: blAwbNo.trim() || undefined,
+    hawbNo: hawbNo.trim() || undefined,
+    flight: flight.trim() || undefined,
+    details: Object.fromEntries(
+      Object.entries(det)
+        .map(([k, v]) => [k, v.trim()])
+        .filter(([, v]) => v),
+    ),
     items: items.map((i) => ({
       lengthCm: num(i.lengthCm),
       widthCm: num(i.widthCm),
@@ -144,13 +198,16 @@ export default function NewShipment() {
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    mode, origin, destination, goodsValue,
-    ratePerUnit, minCharge, fuelPct, handling, volDivisor, doCharges, freightOverride,
-    JSON.stringify(items),
+    mode, origin, destination, goodsValue, freightLabel, currency, exRate,
+    ratePerUnit, minCharge, fuelPct, handling, volDivisor, freightOverride, doCharges,
+    JSON.stringify(extras), JSON.stringify(items),
   ]);
 
   const setItem = (idx: number, k: keyof Item, v: string) =>
     setItems(items.map((it, i) => (i === idx ? { ...it, [k]: v } : it)));
+  const setExtra = (idx: number, patch: Partial<Extra>) =>
+    setExtras(extras.map((e, i) => (i === idx ? { ...e, ...patch } : e)));
+  const setD = (k: string, v: string) => setDet({ ...det, [k]: v });
 
   async function saveCustomer() {
     if (!cName.trim()) return setError('Enter the customer name');
@@ -193,7 +250,11 @@ export default function NewShipment() {
 
   function check() {
     if (!customerId) return 'Select a customer or add a new one';
-    if (!ready) return 'Fill in the route, freight rate (or freight amount) and all package sizes';
+    if (!origin.trim() || !destination.trim()) return 'Enter the origin and destination';
+    if (!hasFreight) return 'Enter the freight rate or a total freight amount';
+    if (!exOk) return `Enter the exchange rate (PKR per 1 ${currency})`;
+    if (!extrasOk) return 'Enter the exchange rate for the other charges';
+    if (!itemsValid) return 'Fill in the size and weight of every package';
     return '';
   }
 
@@ -209,7 +270,7 @@ export default function NewShipment() {
       if (saveRate && num(ratePerUnit) > 0) await saveRateCard();
       const s = await api('/shipments', {
         method: 'POST',
-        body: { ...body(), customerId, blAwbNo: blAwbNo || undefined, eta: eta || undefined },
+        body: { ...body(), customerId, eta: eta || undefined },
       });
       if (withInvoice) {
         try {
@@ -237,10 +298,7 @@ export default function NewShipment() {
     setBusy(true);
     setError('');
     try {
-      await previewPdf(
-        { ...body(), customerId, blAwbNo: blAwbNo || undefined, eta: eta || undefined },
-        win,
-      );
+      await previewPdf({ ...body(), customerId, eta: eta || undefined }, win);
     } catch (err) {
       win?.close();
       setError((err as Error).message);
@@ -250,6 +308,18 @@ export default function NewShipment() {
   }
 
   const unit = mode === 'SEA' ? 'CBM' : 'kg';
+  const MORE: [string, string, 'text' | 'date'][] = [
+    ['custRef', 'Customer ref no.', 'text'],
+    ['mawbDate', `${names.master} date`, 'date'],
+    ['hawbDate', `${names.house} date`, 'date'],
+    ['etd', 'ETD', 'date'],
+    ['doNo', 'D/O no.', 'text'],
+    ['doDate', 'D/O date', 'date'],
+    ['igmNo', 'IGM no.', 'text'],
+    ['igmDate', 'IGM date', 'date'],
+    ['beNo', 'B/E no.', 'text'],
+    ['beDate', 'B/E date', 'date'],
+  ];
 
   return (
     <form onSubmit={(e) => { e.preventDefault(); submit(false); }}>
@@ -277,7 +347,7 @@ export default function NewShipment() {
               <div><label>Name</label><input value={cName} onChange={(e) => setCName(e.target.value)} /></div>
               <div><label>Phone</label><input value={cPhone} onChange={(e) => setCPhone(e.target.value)} /></div>
               <div><label>Address</label><input value={cAddress} onChange={(e) => setCAddress(e.target.value)} /></div>
-              <div><label>Tax number</label><input value={cTax} onChange={(e) => setCTax(e.target.value)} /></div>
+              <div><label>NTN / Tax number</label><input value={cTax} onChange={(e) => setCTax(e.target.value)} /></div>
               <button type="button" onClick={saveCustomer}>Save customer</button>
             </div>
           </>
@@ -293,6 +363,13 @@ export default function NewShipment() {
               <option value="AIR">Air</option>
               <option value="SEA">Sea</option>
               <option value="ROAD">Road</option>
+            </select>
+          </div>
+          <div>
+            <label>Direction</label>
+            <select value={det.direction} onChange={(e) => setD('direction', e.target.value)}>
+              <option value="IMPORT">Import</option>
+              <option value="EXPORT">Export</option>
             </select>
           </div>
           <div>
@@ -318,8 +395,8 @@ export default function NewShipment() {
         <br />
         <div className="row">
           <div>
-            <label>Origin</label>
-            <input list="places" value={origin} onChange={(e) => setOrigin(e.target.value)} placeholder="e.g. Dubai" />
+            <label>Origin (from)</label>
+            <input list="places" value={origin} onChange={(e) => setOrigin(e.target.value)} placeholder="e.g. (MAN) MANCHESTER, UNITED KINGDOM" />
           </div>
           {via.map((v, idx) => (
             <div key={idx}>
@@ -341,8 +418,8 @@ export default function NewShipment() {
             </div>
           ))}
           <div>
-            <label>Destination</label>
-            <input list="places" value={destination} onChange={(e) => setDestination(e.target.value)} placeholder="e.g. Pakistan" />
+            <label>Destination (to)</label>
+            <input list="places" value={destination} onChange={(e) => setDestination(e.target.value)} placeholder="e.g. (KHI) KARACHI AIRPORT" />
           </div>
         </div>
         <div style={{ marginTop: 10 }}>
@@ -366,12 +443,34 @@ export default function NewShipment() {
       <div className="card">
         <h3>Freight</h3>
         <div className="row">
+          <div style={{ flex: 2 }}>
+            <label>Description on invoice</label>
+            <input value={freightLabel} onChange={(e) => setFreightLabel(e.target.value)} placeholder={`e.g. ${names.freight} & EXW Cost`} />
+          </div>
           <div>
-            <label>Rate per {unit}</label>
+            <label>Currency</label>
+            <select value={currency} onChange={(e) => setCurrency(e.target.value)}>
+              {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+          {currency !== 'PKR' && (
+            <div>
+              <label>Exchange rate (1 {currency} = PKR)</label>
+              <input type="number" min="0" step="any" value={exRate} onChange={(e) => setExRate(e.target.value)} />
+              <span className="muted">
+                {fx[currency] ? `Saved rate: ${fx[currency]}` : 'No saved rate. Set it under Exchange rates.'}
+              </span>
+            </div>
+          )}
+        </div>
+        <br />
+        <div className="row">
+          <div>
+            <label>Rate per {unit} ({currency})</label>
             <input type="number" min="0" step="any" value={ratePerUnit} onChange={(e) => setRatePerUnit(e.target.value)} />
           </div>
           <div>
-            <label>Minimum charge</label>
+            <label>Minimum charge ({currency})</label>
             <input type="number" min="0" step="any" value={minCharge} onChange={(e) => setMinCharge(e.target.value)} />
           </div>
           <div>
@@ -379,7 +478,7 @@ export default function NewShipment() {
             <input type="number" min="0" step="any" value={fuelPct} onChange={(e) => setFuelPct(e.target.value)} />
           </div>
           <div>
-            <label>Exworx (fixed)</label>
+            <label>Handling ({currency})</label>
             <input type="number" min="0" step="any" value={handling} onChange={(e) => setHandling(e.target.value)} />
           </div>
           {mode !== 'SEA' && (
@@ -396,16 +495,16 @@ export default function NewShipment() {
         <br />
         <div className="row">
           <div>
-            <label>DO charges (PKR)</label>
-            <input type="number" min="0" step="any" value={doCharges} onChange={(e) => setDoCharges(e.target.value)} />
-          </div>
-          <div>
-            <label>Override total freight (optional)</label>
+            <label>Override total freight ({currency})</label>
             <input
               type="number" min="0" step="any" value={freightOverride}
               placeholder="Leave empty to calculate from the rate"
               onChange={(e) => setFreightOverride(e.target.value)}
             />
+          </div>
+          <div>
+            <label>D/O charges (PKR)</label>
+            <input type="number" min="0" step="any" value={doCharges} onChange={(e) => setDoCharges(e.target.value)} />
           </div>
           <div>
             <label style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 22 }}>
@@ -415,27 +514,111 @@ export default function NewShipment() {
           </div>
         </div>
         <p className="muted">
-          A freight amount replaces the calculated freight (no fuel or handling is added). DO charges are
-          always added on top, so leave them at 0 if your override already includes them.
+          A freight amount replaces the calculated freight (no fuel or handling is added). D/O charges
+          are in PKR and are added on top.
         </p>
+      </div>
+
+      <div className="card">
+        <h3>Other charges</h3>
+        {extras.map((e, idx) => (
+          <div className="row" key={idx} style={{ marginBottom: 10 }}>
+            <div style={{ flex: 3 }}>
+              <label>Description</label>
+              <input value={e.label} placeholder="e.g. Export License & Docs Fee" onChange={(ev) => setExtra(idx, { label: ev.target.value })} />
+            </div>
+            <div>
+              <label>Amount</label>
+              <input type="number" min="0" step="any" value={e.amount} onChange={(ev) => setExtra(idx, { amount: ev.target.value })} />
+            </div>
+            <div>
+              <label>Currency</label>
+              <select
+                value={e.currency}
+                onChange={(ev) =>
+                  setExtra(idx, {
+                    currency: ev.target.value,
+                    exRate: fx[ev.target.value] ? String(fx[ev.target.value]) : '',
+                  })
+                }
+              >
+                {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+            {e.currency !== 'PKR' && e.currency !== currency && (
+              <div>
+                <label>1 {e.currency} = PKR</label>
+                <input type="number" min="0" step="any" value={e.exRate} onChange={(ev) => setExtra(idx, { exRate: ev.target.value })} />
+              </div>
+            )}
+            <button type="button" className="ghost small" onClick={() => setExtras(extras.filter((_, i) => i !== idx))}>
+              Remove
+            </button>
+          </div>
+        ))}
+        <button
+          type="button"
+          className="ghost"
+          onClick={() => setExtras([...extras, { label: '', amount: '', currency, exRate: '' }])}
+        >
+          + Add charge
+        </button>
       </div>
 
       <div className="card">
         <h3>Shipment details</h3>
         <div className="row">
           <div>
-            <label>Goods value (optional)</label>
-            <input type="number" min="0" step="any" value={goodsValue} onChange={(e) => setGoodsValue(e.target.value)} />
+            <label>{names.line}</label>
+            <input value={det.airline ?? ''} onChange={(e) => setD('airline', e.target.value)} placeholder="e.g. QATAR AIRWAYS- QR" />
           </div>
           <div>
-            <label>BL / AWB number</label>
+            <label>Shipper</label>
+            <input value={det.shipper ?? ''} onChange={(e) => setD('shipper', e.target.value)} />
+          </div>
+          <div>
+            <label>Commodity</label>
+            <input value={det.commodity ?? ''} onChange={(e) => setD('commodity', e.target.value)} />
+          </div>
+        </div>
+        <br />
+        <div className="row">
+          <div>
+            <label>{names.master}</label>
             <input value={blAwbNo} onChange={(e) => setBlAwbNo(e.target.value)} />
+          </div>
+          <div>
+            <label>{names.house}</label>
+            <input value={hawbNo} onChange={(e) => setHawbNo(e.target.value)} />
+          </div>
+          <div>
+            <label>{names.carrier} (optional)</label>
+            <input value={flight} onChange={(e) => setFlight(e.target.value)} />
           </div>
           <div>
             <label>ETA</label>
             <input type="date" value={eta} onChange={(e) => setEta(e.target.value)} />
           </div>
+          <div>
+            <label>Goods value (optional)</label>
+            <input type="number" min="0" step="any" value={goodsValue} onChange={(e) => setGoodsValue(e.target.value)} />
+          </div>
         </div>
+        <div style={{ marginTop: 12 }}>
+          <button type="button" className="ghost small" onClick={() => setShowMore(!showMore)}>
+            {showMore ? 'Hide extra invoice fields' : 'Show extra invoice fields (D/O, IGM, B/E, ETD, dates)'}
+          </button>
+        </div>
+        {showMore && (
+          <div className="grid" style={{ marginTop: 12 }}>
+            {MORE.map(([key, text, type]) => (
+              <div key={key}>
+                <label>{text}</label>
+                <input type={type} value={det[key] ?? ''} onChange={(e) => setD(key, e.target.value)} />
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="card">

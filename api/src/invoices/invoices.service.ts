@@ -5,45 +5,12 @@ import type { CreateShipmentDto } from '../shipments/dto.js';
 import { ShipmentsService } from '../shipments/shipments.service.js';
 import { buildInvoicePdf } from './invoice-pdf.js';
 
-const r2 = (n: number) => Math.round(n * 100) / 100;
-
-type LineSource = {
-  base: number;
-  fuel: number;
-  handling: number;
-  doCharges: number;
-  duty: number;
-  salesTax: number;
-  wht: number;
-  cbm: number;
-  chargeableKg: number;
-  freightOverridden: boolean;
-};
-
 @Injectable()
 export class InvoicesService {
   constructor(
     private prisma: PrismaService,
     private shipments: ShipmentsService,
   ) {}
-
-  private buildLines(mode: string, q: LineSource) {
-    const freightLabel = q.freightOverridden
-      ? 'Freight'
-      : mode === 'SEA'
-        ? `Freight (${q.cbm} CBM)`
-        : `Freight (${q.chargeableKg} kg chargeable)`;
-
-    return [
-      { label: freightLabel, amount: q.base },
-      { label: 'Fuel surcharge', amount: q.fuel },
-      { label: 'Handling', amount: q.handling },
-      { label: 'DO charges', amount: q.doCharges },
-      { label: 'Customs duty', amount: q.duty },
-      { label: 'Sales tax', amount: q.salesTax },
-      { label: 'Withholding tax', amount: q.wht },
-    ].filter((l) => l.amount > 0);
-  }
 
   // Next number after the highest existing one (safe after deletions).
   private async nextInvoiceNo() {
@@ -65,12 +32,23 @@ export class InvoicesService {
     }
 
     const q = await this.shipments.quoteForShipment(shipmentId);
-    const lines = this.buildLines(shipment.mode, q);
-    const total = r2(lines.reduce((s, l) => s + l.amount, 0));
     const invoiceNo = await this.nextInvoiceNo();
 
     return this.prisma.invoice.create({
-      data: { invoiceNo, shipmentId, total, lines: { create: lines } },
+      data: {
+        invoiceNo,
+        shipmentId,
+        total: q.total,
+        lines: {
+          create: q.lines.map((l) => ({
+            label: l.label,
+            amount: l.pkr,
+            currency: l.currency,
+            foreignAmount: l.foreign,
+            exRate: l.rate,
+          })),
+        },
+      },
       include: { lines: true },
     });
   }
@@ -81,15 +59,19 @@ export class InvoicesService {
     if (!customer) throw new NotFoundException('Customer not found');
 
     const q = await this.shipments.quote(dto);
-    const lines = this.buildLines(dto.mode, q);
-    const total = r2(lines.reduce((s, l) => s + l.amount, 0));
 
     const inv = {
       invoiceNo: 'PREVIEW',
       status: 'PREVIEW',
       issuedAt: new Date(),
-      total,
-      lines,
+      total: q.total,
+      lines: q.lines.map((l) => ({
+        label: l.label,
+        amount: l.pkr,
+        currency: l.currency,
+        foreignAmount: l.foreign,
+        exRate: l.rate,
+      })),
       shipment: {
         refNo: 'Not saved',
         mode: dto.mode,
@@ -97,6 +79,13 @@ export class InvoicesService {
         destination: dto.destination.trim(),
         viaPoints: (dto.viaPoints ?? []).map((p) => p.trim()).filter(Boolean),
         blAwbNo: dto.blAwbNo ?? null,
+        hawbNo: dto.hawbNo ?? null,
+        flight: dto.flight ?? null,
+        eta: dto.eta ?? null,
+        volDivisor: dto.rate?.volDivisor ?? null,
+        exRate: q.exRate,
+        details: dto.details ?? null,
+        items: dto.items,
         customer: {
           name: customer.name,
           address: customer.address,
@@ -126,7 +115,7 @@ export class InvoicesService {
   async findOne(id: string) {
     const invoice = await this.prisma.invoice.findUnique({
       where: { id },
-      include: { lines: true, shipment: { include: { customer: true } } },
+      include: { lines: true, shipment: { include: { customer: true, items: true } } },
     });
     if (!invoice) throw new NotFoundException('Invoice not found');
     return invoice;
