@@ -2,37 +2,41 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import PDFDocument from 'pdfkit';
 import { fmtDate, inWords, money } from '../invoices/invoice-pdf.js';
+import { CHARGE_CODES } from './charges.js';
 
 // ---------------------------------------------------------------------------
 // TNI ENTERPRISES details printed on every clearance invoice. EDIT THESE.
+// (The address, phones and email are already on the letterhead images.)
 // ---------------------------------------------------------------------------
 const COMPANY = {
   name: 'TNI ENTERPRISES',
   tagline: 'Customs Clearing & Forwarding Agents',
-  address: 'Office address, City',
-  email: 'email@example.com',
-  phones: '+92 000 0000000',
-  ntn: 'NTN: 0000000-0',
-  bank: {
-    title: 'TNI ENTERPRISES',
-    name: 'Bank name, Branch',
-    account: '0000000000000',
-    iban: 'PK00XXXX0000000000000000',
-  },
+  address: 'Street # 06, Union Council Road, Near Jamia Masjid Sultan, Dhoke Haidri Koral, Islamabad - 44000',
+  email: 'tni.enterprises786@gmail.com',
+  phones: '0346-6479976 | 0313-5388630',
+  banks: [
+    {
+      bank: 'Bank ALFALAH',
+      title: 'TNI Enterprises',
+      account: '5681005002351905',
+      iban: 'PK04ALFH5681005002351905',
+    },
+    {
+      bank: 'Askari Bank',
+      title: 'TNI Enterprises',
+      account: '03320420001293',
+      iban: 'PK95ASCM0003320420001293',
+    },
+  ],
   // Keep each line short enough to fit on one line.
   terms: [
     '1) Duties and taxes are charged as per the assessment and challans issued by Customs.',
-    '2) Any discrepancy in this invoice must be reported within 3 days of receipt, otherwise it will be considered correct.',
+    '2) Any discrepancy in this invoice must be reported within 3 days of receipt, otherwise it will be considered correct and accepted.',
     '3) Demurrage, detention and examination charges, if any, are payable by the owner of the goods.',
-    '4) Extra financial charges may be added if the invoice is not paid within the agreed days.',
-    '5) All legal matters are subject to the jurisdiction of the local courts only.',
+    '4) Extra financial charges may be added to the invoice amount if it is not paid within the agreed days.',
+    '5) Payment must be made only to the TNI Enterprises bank accounts printed on this invoice.',
+    '6) All legal matters are subject to the jurisdiction of the local courts only.',
   ],
-};
-
-const LABELS: Record<string, { master: string; house: string }> = {
-  AIR: { master: 'MAWB NO.', house: 'HAWB NO.' },
-  SEA: { master: 'MBL NO.', house: 'HBL NO.' },
-  ROAD: { master: 'WAYBILL NO.', house: 'REF NO.' },
 };
 
 export type ClearancePdfJob = {
@@ -42,18 +46,29 @@ export type ClearancePdfJob = {
   invoicedAt: Date;
   total: any;
   gdNo?: string | null;
+  assessableValue?: any;
   customerName: string;
   customerAddress?: string | null;
   customerPhone?: string | null;
   customerTax?: string | null;
   details?: any;
-  freightInvoiceNo?: string | null;
-  lines: { label: string; amount: any }[];
+  lines: { code: string; amount: any }[];
 };
 
 const asset = (name: string) => {
   const p = join(process.cwd(), 'assets', name);
   return existsSync(p) ? p : null;
+};
+
+// whole rupees with commas, and the paisa part (blank when zero)
+const split = (v: any) => {
+  const n = Math.round(Number(v) * 100) / 100;
+  const whole = Math.floor(n + 1e-9);
+  const paisa = Math.round((n - whole) * 100);
+  return {
+    rs: whole.toLocaleString('en-US'),
+    ps: paisa ? String(paisa).padStart(2, '0') : '',
+  };
 };
 
 export function buildClearancePdf(job: ClearancePdfJob): Promise<Buffer> {
@@ -124,107 +139,36 @@ export function buildClearancePdf(job: ClearancePdfJob): Promise<Buffer> {
       }
     };
 
-    // ---- header
+    // "Label: value" with a thin line under it, like the printed bill
+    const field = (label: string, value: string, x: number, yy: number, w: number, bold = true) => {
+      doc.font('Helvetica').fontSize(8.5).fillColor('#000');
+      const lw = doc.widthOfString(label) + 4;
+      doc.text(label, x, yy, { lineBreak: false });
+      doc.font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(9);
+      doc.text(value, x + lw, yy, { width: w - lw, height: 11, ellipsis: true, lineBreak: false });
+      doc.lineWidth(0.4).strokeColor('#555').moveTo(x, yy + 11.5).lineTo(x + w, yy + 11.5).stroke();
+    };
+
+    // ---- letterhead
     if (topImg) {
       doc.image(topImg, 0, 0, { width: W });
     } else {
       doc.font('Helvetica-Bold').fontSize(22).fillColor('#14213d').text(COMPANY.name, L, 34);
       doc.font('Helvetica').fontSize(9).fillColor('#444');
       doc.text(COMPANY.tagline, L, 60);
-      doc.text(`${COMPANY.address}  |  ${COMPANY.phones}  |  ${COMPANY.email}`, L, 72);
-      doc.text(COMPANY.ntn, L, 84);
+      doc.text(`${COMPANY.address}`, L, 72);
+      doc.text(`${COMPANY.phones}  |  ${COMPANY.email}`, L, 84);
     }
 
     const d: Record<string, any> = job.details && typeof job.details === 'object' ? job.details : {};
-    const t = LABELS[String(d.mode ?? '').toUpperCase()] ?? { master: 'MASTER NO.', house: 'HOUSE NO.' };
+    const has = (v: any) => v != null && String(v).trim() !== '';
     const invDate = job.invoicedAt.toLocaleDateString('en-GB');
+    const beDate = has(d.beDate) ? fmtDate(d.beDate) : '';
 
-    let y = topH + 8;
-    cell(L, y, FULL, 24, 'INVOICE', { bold: true, size: 16, align: 'center', fill: '#e6e6e6' });
-    y += 24;
-
-    // ---- customer (left) and invoice details (right)
-    const ROW = 15;
-    const boxH = ROW * 5;
-    const LW = 215;
-    const RX = L + LW + 6;
-    const RW = R - RX;
-    const c1 = 62;
-    const c2 = 130;
-    const c3 = 38;
-    const c4 = RW - c1 - c2 - c3;
-
-    cell(L, y, LW, boxH);
-    cell(L, y, 62, ROW, 'CUSTOMER', { bold: true, size: 8 });
-    doc.font('Helvetica-Bold').fontSize(9).fillColor('#000');
-    doc.text(job.customerName, L + 4, y + ROW + 3, { width: LW - 8, height: 12, ellipsis: true });
-    doc.font('Helvetica').fontSize(8);
-    let cy = y + ROW + 17;
-    if (job.customerAddress) {
-      doc.text(job.customerAddress, L + 4, cy, { width: LW - 8, height: 22, ellipsis: true });
-      cy = Math.min(doc.y, y + boxH - 22);
-    }
-    if (job.customerPhone) {
-      doc.text(`Tel: ${job.customerPhone}`, L + 4, cy, { width: LW - 8, height: 10 });
-      cy += 10;
-    }
-    if (job.customerTax && cy + 8 <= y + boxH) {
-      doc.text(`NTN: ${job.customerTax}`, L + 4, cy, { width: LW - 8, height: 10 });
-    }
-
-    let ry = y;
-    const grid = (l1: string, v2: string, l3: string, v4: string, boldVal = false) => {
-      cell(RX, ry, c1, ROW, l1, { bold: true });
-      cell(RX + c1, ry, c2, ROW, v2, { bold: boldVal });
-      cell(RX + c1 + c2, ry, c3, ROW, l3, { bold: true });
-      cell(RX + c1 + c2 + c3, ry, c4, ROW, v4);
-      ry += ROW;
-    };
-    grid('Invoice No.', job.invoiceNo, 'Date', invDate, true);
-    grid('GD No.', job.gdNo ?? '', 'Job', job.jobNo, true);
-    grid('IGM No.', d.igmNo ?? '', 'Date', fmtDate(d.igmDate));
-    grid('B/E Date', fmtDate(d.beDate), 'Ref', d.custRef ?? '');
-    cell(RX, ry, c1, ROW, 'Freight Inv.', { bold: true });
-    cell(RX + c1, ry, RW - c1, ROW, job.freightInvoiceNo ?? '');
-    y += boxH + 8;
-
-    // ---- consignment
-    const w = [70, 70, 38, 100, 32, 55, 85];
-    w.push(FULL - w.reduce((a, b) => a + b, 0));
-    const heads = ['FROM', 'TO', 'MODE', 'COMMODITY', 'PCS', 'GRS.WT (KG)', t.master, t.house];
-    let x = L;
-    heads.forEach((h, i) => {
-      cell(x, y, w[i], 13, h, { bold: true, align: 'center', fill: '#c8c8c8', size: 7 });
-      x += w[i];
-    });
-    y += 13;
-    const dataH = 30;
-    const vals = [
-      d.origin ?? '',
-      d.destination ?? '',
-      d.mode ?? '',
-      d.commodity ?? '',
-      d.pcs ?? '',
-      d.weightKg ? money(d.weightKg) : '',
-      d.blNo ?? '',
-      [d.hawbNo, d.flight].filter(Boolean).join('\n'),
-    ];
-    x = L;
-    vals.forEach((v, i) => {
-      doc.lineWidth(0.5).strokeColor('#000').rect(x, y, w[i], dataH).stroke();
-      doc
-        .font('Helvetica')
-        .fontSize(8)
-        .fillColor('#000')
-        .text(String(v), x + 3, y + 4, {
-          width: w[i] - 6,
-          height: dataH - 6,
-          ellipsis: true,
-          align: i >= 4 && i <= 5 ? 'center' : 'left',
-        });
-      x += w[i];
-    });
-    y += dataH + 14;
+    let y = topH + 6;
+    const HALF = (FULL - 20) / 2;
+    const RX = L + HALF + 20;
+    const ROWH = 15;
 
     const ensure = (h: number) => {
       if (y + h > footerTop - 8) {
@@ -233,40 +177,121 @@ export function buildClearancePdf(job: ClearancePdfJob): Promise<Buffer> {
       }
     };
 
-    // ---- particulars
-    const AMT = 110;
-    const SNW = 28;
-    const PW = FULL - SNW - AMT;
-    ensure(80);
-    cell(L, y, SNW, 15, 'S#', { bold: true, align: 'center', fill: '#c8c8c8' });
-    cell(L + SNW, y, PW, 15, 'PARTICULARS', { bold: true, align: 'center', fill: '#c8c8c8' });
-    cell(L + SNW + PW, y, AMT, 15, 'AMOUNT (PKR)', { bold: true, align: 'center', fill: '#c8c8c8' });
-    y += 15;
+    // ---- header, same lines as the printed bill (empty fields are not printed)
+    field('', job.invoiceNo, L, y, HALF - 70);
+    doc.font('Helvetica-Bold').fontSize(13).fillColor('#000').text('Bill Invoice', L + HALF - 60, y - 2, { lineBreak: false });
+    field('Dated ', invDate, RX, y, HALF);
+    y += ROWH;
 
-    const rows = Math.max(5, job.lines.length);
-    for (let i = 0; i < rows; i++) {
-      const l = job.lines[i];
-      ensure(14);
-      cell(L, y, SNW, 14, l ? String(i + 1) : '', { align: 'center' });
-      cell(L + SNW, y, PW, 14, l?.label ?? '');
-      cell(L + SNW + PW, y, AMT, 14, l ? money(l.amount) : '', { align: 'right' });
-      y += 14;
+    const commodity = has(d.commodity) ? `  ( ${d.commodity} )` : '';
+    field('Mr./M/s. ', `${job.customerName}${commodity}`, L, y, FULL);
+    y += ROWH;
+
+    const contact = [
+      job.customerAddress,
+      job.customerPhone ? `Tel: ${job.customerPhone}` : '',
+      job.customerTax ? `NTN: ${job.customerTax}` : '',
+    ]
+      .filter(Boolean)
+      .join('   ');
+    if (contact) {
+      field('Address: ', contact, L, y, FULL, false);
+      y += ROWH;
     }
 
-    // ---- total with amount in words
+    // the remaining header fields, two per row, skipping the empty ones
+    const optional: [string, string][] = (
+      [
+        ['Express On: ', d.expressOn],
+        ['No.Of.Pkgs: ', d.pcs],
+        ['Weight: ', has(d.weightKg) ? `${money(d.weightKg)} KG` : ''],
+        ['Invoice No: ', d.invoiceRef],
+        ['Party Code: ', d.partyCode],
+        ['G.D No: ', job.gdNo],
+        ['Dated ', beDate],
+        ['AWB No: - ', d.blNo],
+        ['HAWB No: ', d.hawbNo],
+      ] as [string, any][]
+    )
+      .filter(([, v]) => has(v))
+      .map(([k, v]) => [k, String(v)]);
+    for (let i = 0; i < optional.length; i += 2) {
+      field(optional[i][0], optional[i][1], L, y, HALF);
+      if (optional[i + 1]) field(optional[i + 1][0], optional[i + 1][1], RX, y, HALF);
+      y += ROWH;
+    }
+    y += 6;
+
+    // ---- table: info column | code | particulars | Rs. | Ps. (only the charges that were entered)
+    const INFO = 112;
+    const SNW = 36;
+    const RSW = 92;
+    const PSW = 34;
+    const PW = FULL - INFO - SNW - RSW - PSW;
+    const xS = L + INFO;
+    const xP = xS + SNW;
+    const xR = xP + PW;
+    const xPs = xR + RSW;
+    const RH = 14;
+
+    const rows = CHARGE_CODES.map((c) => ({
+      ...c,
+      amount: job.lines.find((l) => l.code === c.code)?.amount,
+    })).filter((r) => r.amount != null && Number(r.amount) > 0);
+
+    const av = Number(job.assessableValue);
+    const info = [
+      av > 0 ? `Value Rs: ${split(av).rs}` : '',
+      has(d.igmNo) ? `IGM No: ${d.igmNo}` : '',
+      has(d.beNo) ? `B/E S/B No: ${d.beNo}` : '',
+      beDate ? `Dated: ${beDate}` : '',
+      has(d.demBillNo) ? `Dem.Bill No: ${d.demBillNo}` : '',
+      has(d.wNo) ? `W/ No: ${d.wNo}` : '',
+      has(d.pcs) ? `No. Pkgs: ${d.pcs}` : '',
+    ].filter(Boolean);
+
+    ensure(80);
+    cell(L, y, INFO, RH, '', { fill: '#c8c8c8' });
+    cell(xS, y, SNW, RH, '', { fill: '#c8c8c8' });
+    cell(xP, y, PW, RH, '', { fill: '#c8c8c8' });
+    cell(xR, y, RSW, RH, 'Rs.', { bold: true, align: 'center', fill: '#c8c8c8' });
+    cell(xPs, y, PSW, RH, 'Ps.', { bold: true, align: 'center', fill: '#c8c8c8' });
+    y += RH;
+
+    const bodyRows = Math.max(rows.length, info.length);
+    for (let i = 0; i < bodyRows; i++) {
+      const r = rows[i];
+      ensure(RH);
+      cell(L, y, INFO, RH, info[i] ?? '', { size: 7.5 });
+      cell(xS, y, SNW, RH, r?.code ?? '', { align: 'center', size: 7.5 });
+      cell(xP, y, PW, RH, r?.label ?? '', { size: 8 });
+      const a = r ? split(r.amount) : { rs: '', ps: '' };
+      cell(xR, y, RSW, RH, r ? `=${a.rs}=` : '', { bold: true, align: 'right' });
+      cell(xPs, y, PSW, RH, a.ps ? `=${a.ps}=` : '', { bold: true, align: 'center' });
+      y += RH;
+    }
+
+    // ---- total
+    const tot = split(job.total);
+    ensure(RH);
+    cell(L, y, INFO, RH);
+    cell(xS, y, SNW, RH, '344', { align: 'center', size: 7.5 });
+    cell(xP, y, PW, RH, 'Total', { bold: true, size: 9 });
+    cell(xR, y, RSW, RH, `=${tot.rs}=`, { bold: true, size: 9, align: 'right' });
+    cell(xPs, y, PSW, RH, tot.ps ? `=${tot.ps}=` : '', { bold: true, align: 'center' });
+    y += RH;
+
+    // ---- amount in words
     const totalNum = Number(job.total);
     const whole = Math.floor(totalNum + 1e-9);
     const paisa = Math.round((totalNum - whole) * 100);
-    const words = `PKR: ${inWords(whole)}${paisa ? ` and ${inWords(paisa)} Paisa` : ''} Only`;
-    doc.font('Helvetica-Bold').fontSize(8);
-    const WW = FULL - AMT - 50;
-    const th = Math.max(22, doc.heightOfString(words, { width: WW - 8 }) + 8);
-    ensure(th);
-    doc.lineWidth(0.5).strokeColor('#000').rect(L, y, WW, th).stroke();
-    doc.font('Helvetica-Bold').fontSize(8).fillColor('#000').text(words, L + 4, y + 4, { width: WW - 8 });
-    cell(L + WW, y, 50, th, 'TOTAL', { bold: true, align: 'center' });
-    cell(L + WW + 50, y, AMT, th, money(job.total), { bold: true, align: 'right' });
-    y += th + 16;
+    const words = `AMOUNT IN WORDS: -  PKR ${inWords(whole)}${paisa ? ` and ${inWords(paisa)} Paisa` : ''} Only`;
+    doc.font('Helvetica-Bold').fontSize(8.5);
+    const wh = Math.max(20, doc.heightOfString(words, { width: FULL - 10 }) + 10);
+    ensure(wh);
+    doc.lineWidth(0.5).strokeColor('#000').rect(L, y, FULL, wh).stroke();
+    doc.font('Helvetica-Bold').fontSize(8.5).fillColor('#000').text(words, L + 5, y + 5, { width: FULL - 10 });
+    y += wh + 12;
 
     // ---- note instead of a stamp
     ensure(20);
@@ -278,20 +303,24 @@ export function buildClearancePdf(job: ClearancePdfJob): Promise<Buffer> {
         width: FULL,
         align: 'center',
       });
-    y += 22;
+    y += 20;
 
-    // ---- banking details
-    ensure(80);
+    // ---- banking details (both accounts side by side)
+    const BH = 62;
+    ensure(BH + 18);
     doc.font('Helvetica-Bold').fontSize(11).fillColor('#355E9B').text('Banking detail:', L, y);
-    y += 18;
-    doc.font('Helvetica').fontSize(8.5).fillColor('#000');
-    [
-      `Account Title: ${COMPANY.bank.title}`,
-      `Account Number: ${COMPANY.bank.account}`,
-      `IBAN: ${COMPANY.bank.iban}`,
-      COMPANY.bank.name,
-    ].forEach((line, i) => doc.text(line, L, y + i * 11));
-    y += 4 * 11 + 8;
+    y += 17;
+    const BW = (FULL - 10) / COMPANY.banks.length;
+    COMPANY.banks.forEach((b, i) => {
+      const bx = L + i * (BW + 10);
+      doc.lineWidth(0.5).strokeColor('#999').rect(bx, y, BW, BH).stroke();
+      doc.font('Helvetica-Bold').fontSize(9).fillColor('#000').text(b.bank, bx + 6, y + 5, { width: BW - 12 });
+      doc.font('Helvetica').fontSize(8.5);
+      doc.text(`Account Title: ${b.title}`, bx + 6, y + 18, { width: BW - 12 });
+      doc.text(`Account Number: ${b.account}`, bx + 6, y + 30, { width: BW - 12 });
+      doc.text(`IBAN: ${b.iban}`, bx + 6, y + 42, { width: BW - 12 });
+    });
+    y += BH + 10;
 
     // ---- terms & conditions (bottom of the page, above the footer)
     const termsH = 14 + COMPANY.terms.length * 9 + 6;

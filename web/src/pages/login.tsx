@@ -18,7 +18,7 @@ export default function Login() {
        const r = await api('/auth/login', { method: 'POST', body: { email, password } });
       setToken(r.accessToken);
       setUser(r.user);
-      nav(r.user.role === 'CLEARING_AGENT' ? '/clearance' : '/');
+      nav(r.user.role === 'ADMIN' ? '/users' : r.user.role === 'CLEARING_AGENT' ? '/clearance' : '/');
     } catch (err) {
       setError((err as Error).message);
     } finally {

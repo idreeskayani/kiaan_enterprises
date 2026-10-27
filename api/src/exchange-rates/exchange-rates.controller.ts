@@ -21,7 +21,7 @@ class SetRateDto {
 
 @Controller('exchange-rates')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.ADMIN, Role.OPERATOR, Role.ACCOUNTANT)
+@Roles(Role.OPERATOR, Role.ACCOUNTANT)
 export class ExchangeRatesController {
   constructor(private prisma: PrismaService) {}
 
@@ -32,7 +32,7 @@ export class ExchangeRatesController {
 
   // PKR per 1 unit of the currency, e.g. PUT /exchange-rates/GBP { "rate": 376 }
   @Put(':currency')
-  @Roles(Role.ADMIN, Role.ACCOUNTANT)
+  @Roles(Role.ACCOUNTANT)
   set(@Param('currency') currency: string, @Body() dto: SetRateDto) {
     const code = currency.trim().toUpperCase();
     if (!/^[A-Z]{3}$/.test(code) || code === 'PKR') {
@@ -46,7 +46,7 @@ export class ExchangeRatesController {
   }
 
   @Delete(':currency')
-  @Roles(Role.ADMIN, Role.ACCOUNTANT)
+  @Roles(Role.ACCOUNTANT)
   async remove(@Param('currency') currency: string) {
     await this.prisma.exchangeRate.deleteMany({ where: { currency: currency.trim().toUpperCase() } });
     return { deleted: true };

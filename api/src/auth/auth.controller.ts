@@ -1,7 +1,7 @@
-import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
+import { CreateUserDto, LoginDto, RegisterDto, UpdateUserDto } from './dto.js';
 import { Role } from '@prisma/client';
 import { AuthService } from './auth.service.js';
-import { CreateUserDto, LoginDto, RegisterDto } from './dto.js';
 import { JwtAuthGuard } from './jwt-auth.guard.js';
 import { Roles } from './roles.decorator.js';
 import { RolesGuard } from './roles.guard.js';
@@ -27,6 +27,19 @@ export class AuthController {
     return this.auth.createUser(dto.email, dto.password, dto.role);
   }
 
+    @Get('users')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  listUsers() {
+    return this.auth.listUsers();
+  }
+
+  @Patch('users/:id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  updateUser(@Param('id') id: string, @Body() dto: UpdateUserDto) {
+    return this.auth.updateUser(id, dto);
+  }
   @Get('me')
   @UseGuards(JwtAuthGuard)
   me(@Req() req: any) {

@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { api, openClearancePdf } from '../api';
+import { api, getUser, openClearancePdf } from '../api';
 import { Badge, fmt } from '../components';
-import { PAYMENT_STATES, label } from '../constants';
+import { TrashIcon } from '../Icons';
 
 export default function ClearanceInvoices() {
   const [sp] = useSearchParams();
@@ -10,6 +10,16 @@ export default function ClearanceInvoices() {
   const [q, setQ] = useState('');
   const [rows, setRows] = useState<any[]>([]);
   const [error, setError] = useState('');
+  const [tick, setTick] = useState(0);
+  const role = getUser()?.role;
+  const canWork = role === 'CLEARING_AGENT';
+  const canPay = canWork || role === 'ACCOUNTANT';
+
+  // payment popup
+  const [payFor, setPayFor] = useState<any>(null);
+  const [dueIn, setDueIn] = useState('');
+  const [payError, setPayError] = useState('');
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -24,7 +34,16 @@ export default function ClearanceInvoices() {
         .catch((e) => setError(e.message));
     }, q ? 300 : 0);
     return () => clearTimeout(t);
-  }, [payment, q]);
+  }, [payment, q, tick]);
+
+  // close the popup with Escape
+  useEffect(() => {
+    if (!payFor) return;
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && closePay();
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [payFor, saving]);
 
   async function view(id: string) {
     // open the tab on click so the browser does not block it
@@ -35,6 +54,60 @@ export default function ClearanceInvoices() {
       win?.close();
       setError((e as Error).message);
     }
+  }
+
+  async function removeInvoice(r: any) {
+    if (!window.confirm(`Delete invoice ${r.invoiceNo}? The job stays and you can generate the invoice again.`)) return;
+    try {
+      await api(`/clearance/${r.id}/invoice`, { method: 'DELETE' });
+      setTick((t) => t + 1);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  async function markUnpaid(r: any) {
+    try {
+      await api(`/clearance/${r.id}/payment`, { method: 'PATCH', body: { status: 'UNPAID' } });
+      setTick((t) => t + 1);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  function openPay(r: any) {
+    setPayFor(r);
+    setDueIn('');
+    setPayError('');
+  }
+
+  function closePay() {
+    if (saving) return;
+    setPayFor(null);
+  }
+
+  async function savePayment(body: { status: 'PAID' | 'PARTIAL'; dueAmount?: number }) {
+    setSaving(true);
+    setPayError('');
+    try {
+      await api(`/clearance/${payFor.id}/payment`, { method: 'PATCH', body });
+      setPayFor(null);
+      setTick((t) => t + 1);
+    } catch (e) {
+      setPayError((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function saveDue() {
+    const amount = Number(dueIn);
+    const total = Number(payFor.total);
+    if (!(amount > 0)) return setPayError('Enter the remaining dues amount');
+    if (amount >= total) {
+      return setPayError(`Remaining dues must be less than the invoice total (${fmt(total)})`);
+    }
+    savePayment({ status: 'PARTIAL', dueAmount: Math.round(amount * 100) / 100 });
   }
 
   const due = (r: any) =>
@@ -54,10 +127,10 @@ export default function ClearanceInvoices() {
         </div>
         <div>
           <select value={payment} onChange={(e) => setPayment(e.target.value)}>
-            <option value="">All payments</option>
-            {PAYMENT_STATES.filter((s) => s !== 'UNINVOICED').map((s) => (
-              <option key={s} value={s}>{label(s)}</option>
-            ))}
+            <option value="">All invoices</option>
+            <option value="UNPAID">Unpaid</option>
+            <option value="PARTIAL">Remaining dues</option>
+            <option value="PAID">Paid</option>
           </select>
         </div>
       </div>
@@ -77,18 +150,42 @@ export default function ClearanceInvoices() {
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => (
-              <tr key={r.id}>
-                <td><Link to={`/clearance/jobs/${r.id}`}>{r.invoiceNo}</Link></td>
-                <td>{r.invoicedAt ? new Date(r.invoicedAt).toLocaleDateString('en-GB') : '-'}</td>
-                <td>{r.customerName}</td>
-                <td>{r.jobNo}</td>
-                <td><Badge status={r.payment} /></td>
-                <td className="num">{fmt(r.total)}</td>
-                <td className="num">{fmt(due(r))}</td>
-                <td><button type="button" className="ghost small" onClick={() => view(r.id)}>PDF</button></td>
-              </tr>
-            ))}
+            {rows.map((r) => {
+              const paid = r.payment === 'PAID';
+              const partial = r.payment === 'PARTIAL';
+              return (
+                <tr key={r.id}>
+                  <td><Link to={`/clearance/jobs/${r.id}`}>{r.invoiceNo}</Link></td>
+                  <td>{r.invoicedAt ? new Date(r.invoicedAt).toLocaleDateString('en-GB') : '-'}</td>
+                  <td>{r.customerName}</td>
+                  <td>{r.jobNo}</td>
+                  <td>
+                    <Badge status={r.payment} />
+                    {partial && <span className="due">Remaining dues: PKR {fmt(r.dueAmount)}</span>}
+                  </td>
+                  <td className="num">{fmt(r.total)}</td>
+                  <td className="num">{fmt(due(r))}</td>
+                  <td>
+                    <div className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
+                      <button type="button" className="ghost small" onClick={() => view(r.id)}>View</button>
+                      {canPay && (paid ? (
+                        <button type="button" className="small" onClick={() => markUnpaid(r)}>Mark unpaid</button>
+                      ) : (
+                        <button type="button" className="small" onClick={() => openPay(r)}>
+                          {partial ? 'Update payment' : 'Mark paid'}
+                        </button>
+                      ))}
+                      {canWork && (
+                        <button type="button" className="small"
+                          style={{ background: '#fee2e2', color: '#991b1b' }}
+                          title="Delete invoice" aria-label="Delete invoice"
+                          onClick={() => removeInvoice(r)}><TrashIcon size={14} /></button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
             {rows.length === 0 && <tr><td colSpan={8} className="muted">No invoices found.</td></tr>}
             {rows.length > 0 && (
               <tr>
@@ -101,6 +198,40 @@ export default function ClearanceInvoices() {
           </tbody>
         </table>
       </div>
+
+      {payFor && (
+        <div className="modal-backdrop" onClick={closePay}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Payment for {payFor.invoiceNo}</h3>
+            <p className="muted" style={{ margin: '0 0 14px' }}>
+              {payFor.customerName} · Total PKR {fmt(payFor.total)}
+            </p>
+            {payError && <div className="error">{payError}</div>}
+
+            <button style={{ width: '100%' }} disabled={saving} onClick={() => savePayment({ status: 'PAID' })}>
+              Fully paid
+            </button>
+
+            <div className="or">— or, if not fully paid —</div>
+
+            <label>Remaining dues (PKR)</label>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              placeholder="Amount still to be paid"
+              value={dueIn}
+              onChange={(e) => setDueIn(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && saveDue()}
+              autoFocus
+            />
+            <div className="actions">
+              <button className="ghost" disabled={saving} onClick={closePay}>Cancel</button>
+              <button disabled={saving || !dueIn} onClick={saveDue}>Save remaining dues</button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

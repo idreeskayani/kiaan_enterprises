@@ -1,0 +1,44 @@
+// Every charge printed on the TNI bill invoice, in the same order.
+// Total, Received and Balance are calculated, so they are not listed here.
+export const CHARGE_CODES: { code: string; label: string }[] = [
+  { code: '101', label: 'Customs Duties & Taxes. PUNJAB CESS' },
+  { code: '102', label: 'INVOICE FINE' },
+  { code: '103', label: '5% Sales Tax' },
+  { code: '104', label: 'Delivery Order Charges' },
+  { code: '105', label: 'MISDECLARTION IN INVOICE VA LUE' },
+  { code: '106', label: 'Terminal Tax C.A.A' },
+  { code: '108', label: 'Go down Rent / Gate Pass Cash' },
+  { code: '110', label: 'Bill of Entry Fee' },
+  { code: '111', label: 'Customs Entry Weboc token' },
+  { code: '201', label: 'Loading /RE PACKING' },
+  { code: '202', label: 'Customs Gate Out' },
+  { code: '203', label: 'Customs Entry Weboc' },
+  { code: '204', label: 'Packing / Wiring and sealing' },
+  { code: '205', label: 'Handling Charges' },
+  { code: '206', label: 'Sundries misc.' },
+  { code: '207', label: 'MCD Documentation Verification Charges' },
+  { code: '209', label: 'Service Charges Plus Customs' },
+  { code: '210', label: 'Carriage Airport to Islamabad' },
+  { code: '213', label: 'Airline DO Charges' },
+  { code: '214', label: 'Other Expanses' },
+  { code: '215', label: 'Dog Snuffing' },
+  { code: '301', label: 'Agency Commission' },
+  { code: '0212', label: 'GST. On Ag. Commission @17%' },
+];
+
+// Header fields printed on the bill (stored in job.details).
+export const DETAIL_KEYS = [
+  'expressOn',
+  'commodity',
+  'pcs',
+  'weightKg',
+  'invoiceRef',
+  'partyCode',
+  'beDate',
+  'blNo',
+  'hawbNo',
+  'igmNo',
+  'beNo',
+  'demBillNo',
+  'wNo',
+];

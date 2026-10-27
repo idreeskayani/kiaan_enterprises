@@ -2,26 +2,26 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api, getUser } from '../api';
 import { Badge, fmt } from '../components';
-import { CLEARANCE_STATUSES, label } from '../constants';
 
 export default function ClearanceDashboard() {
   const nav = useNavigate();
-  const canWork = ['ADMIN', 'CLEARING_AGENT'].includes(getUser()?.role ?? '');
+  const canWork = getUser()?.role === 'CLEARING_AGENT';
   const [stats, setStats] = useState<any>(null);
-  const [ongoing, setOngoing] = useState<any[]>([]);
+  const [drafts, setDrafts] = useState<any[]>([]);
   const [unpaid, setUnpaid] = useState<any[]>([]);
   const [error, setError] = useState('');
 
   useEffect(() => {
     Promise.all([
       api('/clearance/stats'),
-      api('/clearance?scope=ongoing'),
+      api('/clearance'),
       api('/clearance?scope=invoiced'),
     ])
-      .then(([s, o, i]) => {
+      .then(([s, all, inv]) => {
         setStats(s);
-        setOngoing(o.slice(0, 8));
-        setUnpaid(i.filter((j: any) => j.payment !== 'PAID').slice(0, 8));
+        // invoices that were started but not generated yet
+        setDrafts(all.filter((j: any) => !j.invoiceNo && j.status !== 'CANCELLED').slice(0, 10));
+        setUnpaid(inv.filter((j: any) => j.payment !== 'PAID').slice(0, 8));
       })
       .catch((e) => setError(e.message));
   }, []);
@@ -37,56 +37,40 @@ export default function ClearanceDashboard() {
     <>
       <div className="row" style={{ alignItems: 'center', marginBottom: 14 }}>
         <h1 style={{ margin: 0, flex: 5 }}>Clearance dashboard</h1>
-        {canWork && <Link to="/clearance/new"><button type="button">+ New job</button></Link>}
+        {canWork && <Link to="/clearance/new"><button type="button">+ New invoice</button></Link>}
       </div>
       {error && <div className="error">{error}</div>}
 
       {stats && (
-        <>
-          <div className="grid" style={{ marginBottom: 14 }}>
-            {stat('Ongoing jobs', stats.inProgress, '/clearance/jobs?scope=ongoing')}
-            {stat('Ready to invoice', stats.readyToInvoice, '/clearance/jobs?scope=ready')}
-            {stat('Released', stats.released, '/clearance/jobs?scope=completed')}
-            {stat('All jobs', stats.jobs, '/clearance/jobs?scope=all')}
-            {stat('Invoices issued', stats.invoices.issued, '/clearance/invoices')}
-            {stat('Paid', stats.invoices.paid, '/clearance/invoices?payment=PAID')}
-            {stat('Unpaid', stats.invoices.unpaid, '/clearance/invoices?payment=UNPAID')}
-            {stat('Part paid', stats.invoices.partial, '/clearance/invoices?payment=PARTIAL')}
-            {stat('Invoiced (PKR)', fmt(stats.amounts.invoiced))}
-            {stat('Collected (PKR)', fmt(stats.amounts.collected))}
-            {stat('Outstanding (PKR)', fmt(stats.amounts.outstanding))}
-          </div>
-          <div className="row" style={{ marginBottom: 18, gap: 6 }}>
-            {CLEARANCE_STATUSES.map((s) => (
-              <button key={s} type="button" className="ghost small" style={{ flex: 'none' }}
-                onClick={() => nav(`/clearance/jobs?scope=all&status=${s}`)}>
-                {label(s)} · {stats.byStatus[s] ?? 0}
-              </button>
-            ))}
-          </div>
-        </>
+        <div className="grid" style={{ marginBottom: 14 }}>
+          {stat('Invoices issued', stats.invoices.issued, '/clearance/invoices')}
+          {stat('Paid', stats.invoices.paid, '/clearance/invoices?payment=PAID')}
+          {stat('Unpaid', stats.invoices.unpaid, '/clearance/invoices?payment=UNPAID')}
+          {stat('Remaining dues', stats.invoices.partial, '/clearance/invoices?payment=PARTIAL')}
+          {stat('Invoiced (PKR)', fmt(stats.amounts.invoiced))}
+          {stat('Collected (PKR)', fmt(stats.amounts.collected))}
+          {stat('Outstanding (PKR)', fmt(stats.amounts.outstanding))}
+        </div>
       )}
 
-      <div className="card">
-        <h3>Ongoing jobs</h3>
+      {/* <div className="card">
+        <h3>Not generated yet</h3>
         <table>
           <thead>
-            <tr><th>Job</th><th>Customer</th><th>GD No</th><th>Stage</th><th>Opened</th></tr>
+            <tr><th>Customer</th><th>Ref</th><th>Created</th></tr>
           </thead>
           <tbody>
-            {ongoing.map((r) => (
+            {drafts.map((r) => (
               <tr key={r.id}>
-                <td><Link to={`/clearance/jobs/${r.id}`}>{r.jobNo}</Link></td>
-                <td>{r.customerName}</td>
-                <td>{r.gdNo ?? '-'}</td>
-                <td><Badge status={r.status} /></td>
+                <td><Link to={`/clearance/jobs/${r.id}`}>{r.customerName}</Link></td>
+                <td>{r.jobNo}</td>
                 <td>{new Date(r.createdAt).toLocaleDateString('en-GB')}</td>
               </tr>
             ))}
-            {ongoing.length === 0 && <tr><td colSpan={5} className="muted">No ongoing jobs.</td></tr>}
+            {drafts.length === 0 && <tr><td colSpan={3} className="muted">Nothing pending.</td></tr>}
           </tbody>
         </table>
-      </div>
+      </div> */}
 
       <div className="card">
         <h3>Invoices waiting for payment</h3>

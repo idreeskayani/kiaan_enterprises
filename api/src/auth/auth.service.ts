@@ -3,6 +3,7 @@ import {
   ForbiddenException,
   Injectable,
   UnauthorizedException,
+  NotFoundException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { Role } from '@prisma/client';
@@ -32,7 +33,29 @@ export class AuthService {
       select: { id: true, email: true, role: true },
     });
   }
+listUsers() {
+  return this.prisma.user.findMany({
+    select: { id: true, email: true, role: true, createdAt: true },
+    orderBy: { createdAt: 'asc' },
+  });
+}
 
+async updateUser(id: string, dto: { email?: string; password?: string }) {
+  const user = await this.prisma.user.findUnique({ where: { id } });
+  if (!user) throw new NotFoundException('User not found');
+  if (dto.email && dto.email !== user.email) {
+    const taken = await this.prisma.user.findUnique({ where: { email: dto.email } });
+    if (taken) throw new ConflictException('Email already registered');
+  }
+  return this.prisma.user.update({
+    where: { id },
+    data: {
+      ...(dto.email ? { email: dto.email } : {}),
+      ...(dto.password ? { password: await bcrypt.hash(dto.password, 10) } : {}),
+    },
+    select: { id: true, email: true, role: true, createdAt: true },
+  });
+}
   async login(email: string, password: string) {
     const user = await this.prisma.user.findUnique({ where: { email } });
     if (!user || !(await bcrypt.compare(password, user.password))) {

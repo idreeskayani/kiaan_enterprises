@@ -43,19 +43,19 @@ export class CatalogController {
   }
 
   @Post('customers')
-  @Roles(Role.ADMIN, Role.OPERATOR, Role.ACCOUNTANT)
+  @Roles(Role.OPERATOR, Role.ACCOUNTANT)
   createCustomer(@Body() dto: CreateCustomerDto) {
     return this.prisma.customer.create({ data: dto });
   }
 
   @Get('rate-cards')
-  @Roles(Role.ADMIN, Role.OPERATOR, Role.ACCOUNTANT)
+  @Roles(Role.OPERATOR, Role.ACCOUNTANT)
   rateCards() {
     return this.prisma.rateCard.findMany();
   }
 
   @Post('rate-cards')
-  @Roles(Role.ADMIN,Role.OPERATOR)
+  @Roles(Role.OPERATOR)
   createRateCard(@Body() dto: CreateRateCardDto) {
     return this.unique(
       () => this.prisma.rateCard.create({ data: dto }),
@@ -64,7 +64,7 @@ export class CatalogController {
   }
 
   @Patch('rate-cards/:id')
-  @Roles(Role.ADMIN,Role.OPERATOR)
+  @Roles(Role.OPERATOR)
   updateRateCard(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateRateCardDto,
@@ -78,7 +78,7 @@ export class CatalogController {
   }
 
   @Post('hs-codes')
-  @Roles(Role.ADMIN,Role.OPERATOR, Role.CLEARING_AGENT)
+  @Roles(Role.OPERATOR, Role.CLEARING_AGENT)
   createHsCode(@Body() dto: CreateHsCodeDto) {
     return this.unique(
       () => this.prisma.hsCode.create({ data: dto }),

@@ -26,19 +26,13 @@ import {
 
 @Controller('clearance')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.ADMIN, Role.CLEARING_AGENT, Role.ACCOUNTANT)
+@Roles(Role.CLEARING_AGENT, Role.ACCOUNTANT)
 export class ClearanceController {
   constructor(private clearance: ClearanceService) {}
 
   @Get('stats')
   stats() {
     return this.clearance.stats();
-  }
-
-  @Get('importable-invoices')
-  @Roles(Role.ADMIN, Role.CLEARING_AGENT)
-  importableInvoices() {
-    return this.clearance.importableInvoices();
   }
 
   @Get()
@@ -52,7 +46,7 @@ export class ClearanceController {
   }
 
   @Post()
-  @Roles(Role.ADMIN, Role.CLEARING_AGENT)
+  @Roles(Role.CLEARING_AGENT)
   create(@Body() dto: CreateClearanceDto, @Req() req: any) {
     return this.clearance.create(dto, req.user.id);
   }
@@ -72,13 +66,13 @@ export class ClearanceController {
   }
 
   @Patch(':id')
-  @Roles(Role.ADMIN, Role.CLEARING_AGENT)
+  @Roles(Role.CLEARING_AGENT)
   update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateClearanceDto) {
     return this.clearance.update(id, dto);
   }
 
   @Patch(':id/status')
-  @Roles(Role.ADMIN, Role.CLEARING_AGENT)
+  @Roles(Role.CLEARING_AGENT)
   updateStatus(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: ClearanceStatusDto,
@@ -88,19 +82,19 @@ export class ClearanceController {
   }
 
   @Post(':id/invoice')
-  @Roles(Role.ADMIN, Role.CLEARING_AGENT)
+  @Roles(Role.CLEARING_AGENT)
   generateInvoice(@Param('id', ParseUUIDPipe) id: string) {
     return this.clearance.generateInvoice(id);
   }
 
   @Delete(':id/invoice')
-  @Roles(Role.ADMIN, Role.CLEARING_AGENT)
+  @Roles(Role.CLEARING_AGENT)
   removeInvoice(@Param('id', ParseUUIDPipe) id: string) {
     return this.clearance.removeInvoice(id);
   }
 
   @Patch(':id/payment')
-  @Roles(Role.ADMIN, Role.CLEARING_AGENT, Role.ACCOUNTANT)
+  @Roles(Role.CLEARING_AGENT, Role.ACCOUNTANT)
   setPayment(@Param('id', ParseUUIDPipe) id: string, @Body() dto: ClearancePaymentDto) {
     return this.clearance.setPayment(id, dto.status, dto.dueAmount);
   }

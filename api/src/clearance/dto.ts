@@ -1,7 +1,6 @@
 import { Type } from 'class-transformer';
 import {
   IsArray,
-  IsBoolean,
   IsEnum,
   IsIn,
   IsNotEmpty,
@@ -10,22 +9,17 @@ import {
   IsOptional,
   IsPositive,
   IsString,
-  IsUUID,
   Min,
   ValidateNested,
 } from 'class-validator';
 import { ClearanceStatus } from '@prisma/client';
 
 export class ChargeDto {
-  @IsString() @IsNotEmpty() label: string;
+  @IsString() @IsNotEmpty() code: string;
   @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) amount: number;
 }
 
 export class CreateClearanceDto {
-  // import a Kiaan shipment invoice (customer, shipment details and freight lines are copied)
-  @IsOptional() @IsUUID() sourceInvoiceId?: string;
-
-  // without an import the customer is typed in
   @IsOptional() @IsString() customerName?: string;
   @IsOptional() @IsString() customerAddress?: string;
   @IsOptional() @IsString() customerPhone?: string;
@@ -38,18 +32,13 @@ export class UpdateClearanceDto {
   @IsOptional() @IsString() customerPhone?: string;
   @IsOptional() @IsString() customerTax?: string;
 
-  // mode, origin, destination, blNo, hawbNo, flight, commodity, pcs, weightKg,
-  // igmNo, igmDate, beDate, custRef
+  // expressOn, commodity, pcs, weightKg, invoiceRef, partyCode, beDate,
+  // blNo, hawbNo, igmNo, beNo, demBillNo, wNo
   @IsOptional() @IsObject() details?: Record<string, string>;
 
-  // null clears the HS code, undefined keeps it
-  @IsOptional() @IsString() hsCodeId?: string | null;
   @IsOptional() @IsNumber() @Min(0) assessableValue?: number;
   // empty string clears it, undefined keeps it
   @IsOptional() @IsString() gdNo?: string;
-
-  // add the imported Kiaan freight lines to this invoice
-  @IsOptional() @IsBoolean() includeFreight?: boolean;
 
   @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => ChargeDto)
   charges?: ChargeDto[];

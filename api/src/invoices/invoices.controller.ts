@@ -21,7 +21,7 @@ import { InvoicesService } from './invoices.service.js';
 
 @Controller('invoices')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.ADMIN, Role.OPERATOR, Role.ACCOUNTANT)
+@Roles(Role.OPERATOR, Role.ACCOUNTANT)
 export class InvoicesController {
   constructor(private invoices: InvoicesService) {}
 
@@ -36,7 +36,7 @@ export class InvoicesController {
   }
 
   @Post('shipment/:shipmentId')
-  @Roles(Role.ADMIN, Role.ACCOUNTANT)
+  @Roles(Role.ACCOUNTANT)
   create(@Param('shipmentId', ParseUUIDPipe) shipmentId: string) {
     return this.invoices.createForShipment(shipmentId);
   }
@@ -63,7 +63,7 @@ export class InvoicesController {
   }
 
   @Patch(':id/status')
-  @Roles(Role.ADMIN, Role.ACCOUNTANT)
+  @Roles(Role.ACCOUNTANT)
   updateStatus(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateInvoiceStatusDto,
@@ -72,7 +72,7 @@ export class InvoicesController {
   }
 
   @Delete(':id')
-  @Roles(Role.ADMIN, Role.ACCOUNTANT)
+  @Roles(Role.ACCOUNTANT)
   remove(@Param('id', ParseUUIDPipe) id: string) {
     return this.invoices.remove(id);
   }

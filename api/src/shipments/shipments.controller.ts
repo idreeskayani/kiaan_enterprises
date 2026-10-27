@@ -19,7 +19,7 @@ import { ShipmentsService } from './shipments.service.js';
 
 @Controller('shipments')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.ADMIN, Role.OPERATOR, Role.ACCOUNTANT)
+@Roles(Role.OPERATOR, Role.ACCOUNTANT)
 export class ShipmentsController {
   constructor(private shipments: ShipmentsService) {}
 
@@ -34,7 +34,7 @@ export class ShipmentsController {
   }
 
   @Post()
-  @Roles(Role.ADMIN, Role.OPERATOR)
+  @Roles(Role.OPERATOR)
   create(@Body() dto: CreateShipmentDto, @Req() req: any) {
     return this.shipments.create(dto, req.user.id);
   }
@@ -55,7 +55,7 @@ export class ShipmentsController {
   }
 
   @Patch(':id/status')
-  @Roles(Role.ADMIN, Role.OPERATOR)
+  @Roles(Role.OPERATOR)
   updateStatus(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateStatusDto,

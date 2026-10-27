@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { api } from '../api';
+import { api, getUser, openClearancePdf } from '../api';
 import { Badge, fmt } from '../components';
 import { CLEARANCE_STATUSES, PAYMENT_STATES, label } from '../constants';
+import { TrashIcon } from '../Icons';
 
 const SCOPES: [string, string][] = [
   ['ongoing', 'Ongoing'],
@@ -19,6 +20,8 @@ export default function ClearanceJobs() {
   const [q, setQ] = useState('');
   const [rows, setRows] = useState<any[]>([]);
   const [error, setError] = useState('');
+  const [tick, setTick] = useState(0);
+  const canWork = getUser()?.role === 'CLEARING_AGENT';
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -36,7 +39,27 @@ export default function ClearanceJobs() {
         .catch((e) => setError(e.message));
     }, q ? 300 : 0);
     return () => clearTimeout(t);
-  }, [scope, status, payment, q]);
+  }, [scope, status, payment, q, tick]);
+
+  async function view(id: string) {
+    const win = window.open('', '_blank');
+    try {
+      await openClearancePdf(id, win);
+    } catch (e) {
+      win?.close();
+      setError((e as Error).message);
+    }
+  }
+
+  async function removeInvoice(r: any) {
+    if (!window.confirm(`Delete invoice ${r.invoiceNo}? The job stays and you can generate the invoice again.`)) return;
+    try {
+      await api(`/clearance/${r.id}/invoice`, { method: 'DELETE' });
+      setTick((t) => t + 1);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
 
   return (
     <>
@@ -77,12 +100,12 @@ export default function ClearanceJobs() {
             <tr>
               <th>Job</th>
               <th>Customer</th>
-              <th>Source</th>
               <th>GD No</th>
               <th>Stage</th>
               <th>Invoice</th>
               <th>Payment</th>
               <th className="num">Total (PKR)</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
@@ -90,7 +113,6 @@ export default function ClearanceJobs() {
               <tr key={r.id}>
                 <td><Link to={`/clearance/jobs/${r.id}`}>{r.jobNo}</Link></td>
                 <td>{r.customerName}</td>
-                <td>{r.sourceInvoice?.invoiceNo ?? 'Direct'}</td>
                 <td>{r.gdNo ?? '-'}</td>
                 <td><Badge status={r.status} /></td>
                 <td>{r.invoiceNo ?? '-'}</td>
@@ -99,6 +121,17 @@ export default function ClearanceJobs() {
                   {r.payment === 'PARTIAL' && <span className="due">Due {fmt(r.dueAmount)}</span>}
                 </td>
                 <td className="num">{fmt(r.total)}</td>
+                <td style={{ whiteSpace: 'nowrap' }}>
+                  {r.invoiceNo && (
+                    <>
+                      <button type="button" className="ghost small" onClick={() => view(r.id)}>View</button>{' '}
+                      {canWork && (
+                        <button type="button" className="ghost small" title="Delete invoice"
+                          aria-label="Delete invoice" onClick={() => removeInvoice(r)}><TrashIcon /></button>
+                      )}
+                    </>
+                  )}
+                </td>
               </tr>
             ))}
             {rows.length === 0 && <tr><td colSpan={8} className="muted">No jobs found.</td></tr>}
