@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { api } from '../api';
+import { api, setToken, setUser } from '../api';
+import { TrashIcon } from '../Icons';
 
 const ROLE_LABELS: Record<string, string> = {
   ADMIN: 'Admin',
@@ -42,6 +43,31 @@ export default function Users() {
   function startEdit(u: any) {
     setEditId(u.id); setNewEmail(u.email); setNewPassword('');
     setError(''); setOk('');
+  }
+
+  // become this user; "Return to admin" (top right) brings the admin back
+  async function switchTo(u: any) {
+    setError(''); setOk('');
+    try {
+      const r = await api(`/auth/users/${u.id}/impersonate`, { method: 'POST' });
+      setToken(r.accessToken);
+      setUser({ ...r.user, impersonating: true });
+      window.location.href = r.user.role === 'CLEARING_AGENT' ? '/clearance' : '/';
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
+
+  async function remove(u: any) {
+    if (!window.confirm(`Delete user ${u.email}? This cannot be undone.`)) return;
+    setError(''); setOk('');
+    try {
+      await api(`/auth/users/${u.id}`, { method: 'DELETE' });
+      setOk('User deleted');
+      load();
+    } catch (err) {
+      setError((err as Error).message);
+    }
   }
 
   async function save(u: any) {
@@ -118,7 +144,18 @@ export default function Users() {
                   <td>
                     <button type="button" className="ghost small" onClick={() => startEdit(u)}>
                       Change email / password
-                    </button>
+                    </button>{' '}
+                    {u.role !== 'ADMIN' && (
+                      <button type="button" className="small" onClick={() => switchTo(u)}>
+                        Switch account
+                      </button>
+                    )}{' '}
+                    {u.role !== 'ADMIN' && (
+                      <button type="button" className="small" style={{ background: '#fee2e2', color: '#991b1b' }}
+                        title="Delete user" aria-label="Delete user" onClick={() => remove(u)}>
+                        <TrashIcon size={14} />
+                      </button>
+                    )}
                   </td>
                 </tr>
               ),

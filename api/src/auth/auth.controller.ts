@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, ForbiddenException, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
 import { CreateUserDto, LoginDto, RegisterDto, UpdateUserDto } from './dto.js';
 import { Role } from '@prisma/client';
 import { AuthService } from './auth.service.js';
@@ -40,6 +40,28 @@ export class AuthController {
   updateUser(@Param('id') id: string, @Body() dto: UpdateUserDto) {
     return this.auth.updateUser(id, dto);
   }
+
+  @Delete('users/:id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  deleteUser(@Param('id') id: string, @Req() req: any) {
+    return this.auth.deleteUser(req.user.id, id);
+  }
+
+  @Post('users/:id/impersonate')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  impersonate(@Param('id') id: string, @Req() req: any) {
+    return this.auth.impersonate(req.user.id, id);
+  }
+
+  @Post('return-to-admin')
+  @UseGuards(JwtAuthGuard)
+  returnToAdmin(@Req() req: any) {
+    if (!req.user.actor) throw new ForbiddenException('You are not switched from an admin account');
+    return this.auth.returnToAdmin(req.user.actor);
+  }
+
   @Get('me')
   @UseGuards(JwtAuthGuard)
   me(@Req() req: any) {

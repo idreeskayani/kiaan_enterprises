@@ -12,7 +12,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     });
   }
 
-  validate(payload: { sub: string; email: string; role: string }) {
-    return { id: payload.sub, email: payload.email, role: payload.role };
+  validate(payload: { sub: string; email: string; role: string; act?: string }) {
+    // act = id of the admin who switched into this account (only set after "Switch account")
+    return { id: payload.sub, email: payload.email, role: payload.role, actor: payload.act };
   }
 }

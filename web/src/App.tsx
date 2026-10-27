@@ -5,17 +5,14 @@ import Invoices from './pages/Invoices';
 import Login from './pages/login';
 import NewShipment from './pages/NewShipment';
 import ShipmentDetail from './pages/ShipmentDetail';
+import Users from './pages/Users';
 import Shipments from './pages/Shipment';
-import { getToken, getUser, setToken, setUser } from './api';
+import { api, getToken, getUser, setToken, setUser } from './api';
 import ClearanceDetail from './pages/ClearanceDetail';
 import ClearanceDashboard from './pages/ClearanceDashboard';
 import ClearanceInvoices from './pages/ClearanceInvoices';
 import ClearanceNew from './pages/ClearanceNew';
 import { BrowserRouter, Navigate, NavLink, Outlet, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
-
-function Users() {
-  return <h1>Users</h1>;
-}
 
 
 function Layout() {
@@ -32,8 +29,28 @@ function Layout() {
   if (admin && pathname !== '/users') return <Navigate to="/users" replace />;
   if (!admin && pathname === '/users') return <Navigate to="/" replace />;
 
+  async function returnToAdmin() {
+    try {
+      const r = await api('/auth/return-to-admin', { method: 'POST' });
+      setToken(r.accessToken);
+      setUser(r.user);
+      window.location.href = '/users';
+    } catch (e) {
+      window.alert((e as Error).message);
+    }
+  }
+
   return (
     <div className="app">
+      {user.impersonating && (
+        <button
+          type="button"
+          style={{ position: 'fixed', top: 12, right: 16, zIndex: 60, boxShadow: '0 2px 8px rgba(0,0,0,.25)' }}
+          onClick={returnToAdmin}
+        >
+          Return to admin
+        </button>
+      )}
       <aside>
         <h2>{agent ? 'TNI Enterprises' : 'Kiaan Cargo'}</h2>
         {admin ? (

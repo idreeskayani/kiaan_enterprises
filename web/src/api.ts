@@ -3,7 +3,7 @@ const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 export const getToken = () => localStorage.getItem('token');
 export const setToken = (t: string | null) =>
   t ? localStorage.setItem('token', t) : localStorage.removeItem('token');
-export const getUser = (): { id: string; email: string; role: string } | null => {
+export const getUser = (): { id: string; email: string; role: string; impersonating?: boolean } | null => {
   try {
     return JSON.parse(localStorage.getItem('user') ?? 'null');
   } catch {

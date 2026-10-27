@@ -56,6 +56,47 @@ async updateUser(id: string, dto: { email?: string; password?: string }) {
     select: { id: true, email: true, role: true, createdAt: true },
   });
 }
+  async deleteUser(adminId: string, id: string) {
+    if (id === adminId) throw new ForbiddenException('You cannot delete your own account');
+    const user = await this.prisma.user.findUnique({ where: { id } });
+    if (!user) throw new NotFoundException('User not found');
+    if (user.role === Role.ADMIN) throw new ForbiddenException('Admin accounts cannot be deleted');
+    try {
+      await this.prisma.user.delete({ where: { id } });
+    } catch (e: any) {
+      // P2003 = the user is referenced by shipment / clearance history
+      if (e?.code === 'P2003') {
+        throw new ConflictException('This user has recorded activity (status history), so it cannot be deleted.');
+      }
+      throw e;
+    }
+    return { deleted: true };
+  }
+
+  // Admin switches into another account. The token remembers the admin (act) so they can return.
+  async impersonate(adminId: string, targetId: string) {
+    const target = await this.prisma.user.findUnique({ where: { id: targetId } });
+    if (!target) throw new NotFoundException('User not found');
+    if (target.role === Role.ADMIN) throw new ForbiddenException('You cannot switch into an admin account');
+    return this.issue(target, adminId);
+  }
+
+  async returnToAdmin(adminId: string) {
+    const admin = await this.prisma.user.findUnique({ where: { id: adminId } });
+    if (!admin || admin.role !== Role.ADMIN) throw new ForbiddenException('Admin account not found');
+    return this.issue(admin);
+  }
+
+  private async issue(user: { id: string; email: string; role: Role }, actor?: string) {
+    const accessToken = await this.jwt.signAsync({
+      sub: user.id,
+      email: user.email,
+      role: user.role,
+      ...(actor ? { act: actor } : {}),
+    });
+    return { accessToken, user: { id: user.id, email: user.email, role: user.role } };
+  }
+
   async login(email: string, password: string) {
     const user = await this.prisma.user.findUnique({ where: { email } });
     if (!user || !(await bcrypt.compare(password, user.password))) {
