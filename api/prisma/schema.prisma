@@ -11,6 +11,7 @@ enum Role {
   ADMIN
   OPERATOR
   ACCOUNTANT
+  CLEARING_AGENT
 }
 
 enum Mode {
@@ -43,6 +44,7 @@ model User {
   email     String          @unique
   password  String
   role      Role            @default(OPERATOR)
+  clearanceHistory ClearanceHistory[]
   createdAt DateTime        @default(now())
   history   StatusHistory[]
 }
@@ -93,6 +95,7 @@ model Shipment {
   history         StatusHistory[]
   invoice         Invoice?
   createdAt       DateTime        @default(now())
+  clearance        ClearanceJob?
 }
 
 model ShipmentItem {
@@ -127,6 +130,7 @@ model HsCode {
   salesTaxPct Decimal    @db.Decimal(5, 2)
   whtPct      Decimal    @default(0) @db.Decimal(5, 2)
   shipments   Shipment[]
+  clearanceJobs    ClearanceJob[]
 }
 
 model Invoice {
@@ -134,8 +138,10 @@ model Invoice {
   invoiceNo  String        @unique
   shipmentId String        @unique
   shipment   Shipment      @relation(fields: [shipmentId], references: [id])
+  clearanceJob     ClearanceJob?
   status     InvoiceStatus @default(DRAFT)
   total      Decimal       @db.Decimal(14, 2)
+  dueAmount  Decimal       @default(0) @db.Decimal(14, 2)
   lines      InvoiceLine[]
   issuedAt   DateTime      @default(now())
 }
@@ -166,4 +172,63 @@ model ExchangeRate {
   currency  String   @unique
   rate      Decimal  @db.Decimal(12, 4)
   updatedAt DateTime @updatedAt
+}
+enum ClearanceStatus {
+  PENDING
+  DOCS_RECEIVED
+  GD_FILED
+  ASSESSED
+  DUTY_PAID
+  EXAMINATION
+  RELEASED
+  ON_HOLD
+  CANCELLED
+}
+
+enum ClearancePayment {
+  UNINVOICED
+  UNPAID
+  PARTIAL
+  PAID
+}
+
+model ClearanceJob {
+  id              String             @id @default(uuid())
+  jobNo           String             @unique
+  shipmentId      String?            @unique
+  shipment        Shipment?          @relation(fields: [shipmentId], references: [id])
+  sourceInvoiceId String?            @unique
+  sourceInvoice   Invoice?           @relation(fields: [sourceInvoiceId], references: [id], onDelete: SetNull)
+  customerName    String
+  customerAddress String?
+  customerPhone   String?
+  customerTax     String?
+  details         Json               @default("{}")
+  hsCodeId        String?
+  hsCode          HsCode?            @relation(fields: [hsCodeId], references: [id])
+  assessableValue Decimal            @default(0) @db.Decimal(14, 2)
+  gdNo            String?
+  status          ClearanceStatus    @default(PENDING)
+  includeFreight  Boolean            @default(false)
+  importedLines   Json               @default("[]")
+  lines           Json               @default("[]")
+  total           Decimal            @default(0) @db.Decimal(14, 2)
+  invoiceNo       String?            @unique
+  invoicedAt      DateTime?
+  payment         ClearancePayment   @default(UNINVOICED)
+  dueAmount       Decimal            @default(0) @db.Decimal(14, 2)
+  history         ClearanceHistory[]
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+}
+
+model ClearanceHistory {
+  id     String          @id @default(uuid())
+  jobId  String
+  job    ClearanceJob    @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  status ClearanceStatus
+  note   String?
+  userId String
+  user   User            @relation(fields: [userId], references: [id])
+  at     DateTime        @default(now())
 }

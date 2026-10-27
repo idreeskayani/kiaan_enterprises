@@ -3,6 +3,15 @@ const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 export const getToken = () => localStorage.getItem('token');
 export const setToken = (t: string | null) =>
   t ? localStorage.setItem('token', t) : localStorage.removeItem('token');
+export const getUser = (): { id: string; email: string; role: string } | null => {
+  try {
+    return JSON.parse(localStorage.getItem('user') ?? 'null');
+  } catch {
+    return null;
+  }
+};
+export const setUser = (u: unknown) =>
+  u ? localStorage.setItem('user', JSON.stringify(u)) : localStorage.removeItem('user');
 
 export async function api<T = any>(
   path: string,
@@ -29,6 +38,16 @@ export async function api<T = any>(
     throw new Error(Array.isArray(m) ? m.join(', ') : (m ?? `Request failed (${res.status})`));
   }
   return data as T;
+}
+export async function openClearancePdf(jobId: string, win?: Window | null) {
+  const res = await fetch(`${BASE}/clearance/${jobId}/pdf`, {
+    headers: { Authorization: `Bearer ${getToken()}` },
+  });
+  if (!res.ok) {
+    win?.close();
+    throw new Error('Could not load the PDF');
+  }
+  showBlob(await res.blob(), win);
 }
 
 function showBlob(blob: Blob, win?: Window | null) {

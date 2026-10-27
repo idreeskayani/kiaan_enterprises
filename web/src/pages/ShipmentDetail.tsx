@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { api, openPdf } from '../api';
+import { api, getUser, openPdf } from '../api';
 import { Badge, Breakdown, fmt } from '../components';
 import { STATUSES, label } from '../constants';
 
@@ -41,7 +41,7 @@ export default function ShipmentDetail() {
       setBusy(false);
     }
   }
-
+const isAgent = getUser()?.role === 'CLEARING_AGENT';
   if (!s) return <>{error ? <div className="error">{error}</div> : <p>Loading...</p>}</>;
 
   return (
@@ -89,7 +89,7 @@ export default function ShipmentDetail() {
       </div>
 
       {quote && <Breakdown q={quote} />}
-
+{!isAgent && (
       <div className="card">
         <h3>Update status</h3>
         <div className="row">
@@ -121,6 +121,7 @@ export default function ShipmentDetail() {
           </button>
         </div>
       </div>
+)}
 
       <div className="card">
         <h3>Invoice</h3>

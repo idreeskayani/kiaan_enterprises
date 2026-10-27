@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api, setToken } from '../api';
+import { api, setToken, setUser } from '../api';
 
 export default function Login() {
   const nav = useNavigate();
@@ -15,9 +15,10 @@ export default function Login() {
     setError('');
     setBusy(true);
     try {
-      const r = await api('/auth/login', { method: 'POST', body: { email, password } });
+       const r = await api('/auth/login', { method: 'POST', body: { email, password } });
       setToken(r.accessToken);
-      nav('/');
+      setUser(r.user);
+      nav(r.user.role === 'CLEARING_AGENT' ? '/clearance' : '/');
     } catch (err) {
       setError((err as Error).message);
     } finally {

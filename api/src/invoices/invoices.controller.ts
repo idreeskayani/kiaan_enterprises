@@ -21,6 +21,7 @@ import { InvoicesService } from './invoices.service.js';
 
 @Controller('invoices')
 @UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(Role.ADMIN, Role.OPERATOR, Role.ACCOUNTANT)
 export class InvoicesController {
   constructor(private invoices: InvoicesService) {}
 
@@ -41,9 +42,10 @@ export class InvoicesController {
   }
 
   // ?payment=PAID or ?payment=UNPAID (leave empty for all)
+  // ?customer=<name> shows only that customer's invoices (partial, case-insensitive match)
   @Get()
-  list(@Query('payment') payment?: string) {
-    return this.invoices.list(payment);
+  list(@Query('payment') payment?: string, @Query('customer') customer?: string) {
+    return this.invoices.list(payment, customer);
   }
 
   @Get(':id/pdf')
@@ -66,7 +68,7 @@ export class InvoicesController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateInvoiceStatusDto,
   ) {
-    return this.invoices.updateStatus(id, dto.status);
+    return this.invoices.updateStatus(id, dto.status, dto.dueAmount);
   }
 
   @Delete(':id')

@@ -21,6 +21,7 @@ class SetRateDto {
 
 @Controller('exchange-rates')
 @UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(Role.ADMIN, Role.OPERATOR, Role.ACCOUNTANT)
 export class ExchangeRatesController {
   constructor(private prisma: PrismaService) {}
 

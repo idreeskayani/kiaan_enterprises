@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, openPdf, previewPdf } from '../api';
-import { Breakdown } from '../components';
+import { Breakdown, fmt} from '../components';
 
 type Item = { lengthCm: string; widthCm: string; heightCm: string; weightKg: string; qty: string };
 type Extra = { label: string; amount: string; currency: string; exRate: string };
@@ -10,6 +10,7 @@ const num = (s: string) => Number(s) || 0;
 const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
 const NEW = '__new__';
 const CURRENCIES = ['USD', 'GBP', 'EUR', 'AED', 'SAR', 'CNY', 'PKR'];
+
 const NAMES: Record<
   string,
   { master: string; house: string; carrier: string; line: string; freight: string }
@@ -52,7 +53,7 @@ export default function NewShipment() {
   const [doCharges, setDoCharges] = useState('');
   const [extras, setExtras] = useState<Extra[]>([]);
   const [saveRate, setSaveRate] = useState(true);
-
+  
   // shipment details
   const [goodsValue, setGoodsValue] = useState('');
   const [blAwbNo, setBlAwbNo] = useState('');
@@ -82,6 +83,7 @@ export default function NewShipment() {
   useEffect(() => {
     if (currency !== 'PKR') setExRate(fx[currency] ? String(fx[currency]) : '');
   }, [currency, fx]);
+
 
   const customerId = customerSel && customerSel !== NEW ? customerSel : '';
   const names = NAMES[mode] ?? NAMES.AIR;
@@ -153,29 +155,7 @@ export default function NewShipment() {
     currency,
     exRate: currency === 'PKR' ? undefined : num(exRate),
     doCharges: doCharges !== '' ? num(doCharges) : undefined,
-    extraCharges: extras
-      .filter((e) => e.label.trim() && num(e.amount) > 0)
-      .map((e) => ({
-        label: e.label.trim(),
-        amount: num(e.amount),
-        currency: e.currency,
-        exRate: e.currency !== 'PKR' && e.currency !== currency ? num(e.exRate) : undefined,
-      })),
-    blAwbNo: blAwbNo.trim() || undefined,
-    hawbNo: hawbNo.trim() || undefined,
-    flight: flight.trim() || undefined,
-    details: Object.fromEntries(
-      Object.entries(det)
-        .map(([k, v]) => [k, v.trim()])
-        .filter(([, v]) => v),
-    ),
-    items: items.map((i) => ({
-      lengthCm: num(i.lengthCm),
-      widthCm: num(i.widthCm),
-      heightCm: num(i.heightCm),
-      weightKg: num(i.weightKg),
-      qty: Math.max(1, Math.floor(num(i.qty))),
-    })),
+      
   });
 
   // live calculation (debounced)
@@ -200,7 +180,6 @@ export default function NewShipment() {
   }, [
     mode, origin, destination, goodsValue, freightLabel, currency, exRate,
     ratePerUnit, minCharge, fuelPct, handling, volDivisor, freightOverride, doCharges,
-    JSON.stringify(extras), JSON.stringify(items),
   ]);
 
   const setItem = (idx: number, k: keyof Item, v: string) =>
@@ -325,7 +304,7 @@ export default function NewShipment() {
     <form onSubmit={(e) => { e.preventDefault(); submit(false); }}>
       <h1>New shipment</h1>
       {error && <div className="error">{error}</div>}
-
+      
       <div className="card">
         <h3>Customer</h3>
         <div className="row">

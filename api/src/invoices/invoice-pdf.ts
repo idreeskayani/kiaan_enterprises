@@ -71,7 +71,7 @@ export type PdfInvoice = {
   };
 };
 
-const money = (v: any) =>
+export const money = (v: any) =>
   Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const asset = (name: string) => {
@@ -80,7 +80,7 @@ const asset = (name: string) => {
 };
 
 // dd/mm/yyyy from a Date or a yyyy-mm-dd string
-const fmtDate = (v: any) => {
+export const fmtDate = (v: any) => {
   if (!v) return '';
   if (v instanceof Date) {
     const dd = String(v.getUTCDate()).padStart(2, '0');
@@ -108,7 +108,7 @@ const under1000 = (n: number): string => {
   return parts.join(' ');
 };
 
-const inWords = (n: number): string => {
+export const inWords = (n: number): string => {
   if (n === 0) return 'Zero';
   const units = ['', 'Thousand', 'Million', 'Billion'];
   const out: string[] = [];

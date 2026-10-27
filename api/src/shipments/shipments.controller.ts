@@ -19,6 +19,7 @@ import { ShipmentsService } from './shipments.service.js';
 
 @Controller('shipments')
 @UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(Role.ADMIN, Role.OPERATOR, Role.ACCOUNTANT)
 export class ShipmentsController {
   constructor(private shipments: ShipmentsService) {}
 

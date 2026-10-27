@@ -1,4 +1,9 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InvoiceStatus, ShipmentStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { CreateShipmentDto } from '../shipments/dto.js';
@@ -98,15 +103,19 @@ export class InvoicesService {
     return { buffer, filename: 'invoice-preview.pdf' };
   }
 
-  list(payment?: string) {
-    const where =
+  list(payment?: string, customer?: string) {
+    const paymentWhere =
       payment === 'PAID'
         ? { status: InvoiceStatus.PAID }
         : payment === 'UNPAID'
           ? { status: { not: InvoiceStatus.PAID } }
-          : undefined;
+          : {};
+    const name = customer?.trim();
+    const customerWhere = name
+      ? { shipment: { customer: { name: { contains: name, mode: 'insensitive' as const } } } }
+      : {};
     return this.prisma.invoice.findMany({
-      where,
+      where: { ...paymentWhere, ...customerWhere },
       include: { shipment: { select: { refNo: true, customer: { select: { name: true } } } } },
       orderBy: { issuedAt: 'desc' },
     });
@@ -122,11 +131,31 @@ export class InvoicesService {
   }
 
   // Payment status only. This never touches the shipment's status.
-  async updateStatus(id: string, status: 'PAID' | 'UNPAID') {
-    await this.findOne(id);
+  // PAID = fully paid, UNPAID = nothing paid, PARTIAL = part paid with dueAmount still owed.
+  async updateStatus(id: string, status: 'PAID' | 'UNPAID' | 'PARTIAL', dueAmount?: number) {
+    const invoice = await this.findOne(id);
+
+    if (status === 'PARTIAL') {
+      if (dueAmount == null) {
+        throw new BadRequestException('Enter the remaining dues amount');
+      }
+      if (dueAmount >= Number(invoice.total)) {
+        throw new BadRequestException(
+          'Remaining dues must be less than the invoice total. Use "Mark unpaid" if nothing has been paid.',
+        );
+      }
+      return this.prisma.invoice.update({
+        where: { id },
+        data: { status: InvoiceStatus.ISSUED, dueAmount },
+      });
+    }
+
     return this.prisma.invoice.update({
       where: { id },
-      data: { status: status === 'PAID' ? InvoiceStatus.PAID : InvoiceStatus.ISSUED },
+      data: {
+        status: status === 'PAID' ? InvoiceStatus.PAID : InvoiceStatus.ISSUED,
+        dueAmount: 0,
+      },
     });
   }
 

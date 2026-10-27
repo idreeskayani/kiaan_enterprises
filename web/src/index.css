@@ -40,3 +40,16 @@ button:disabled { opacity: .6; cursor: default; }
 .timeline { list-style: none; padding: 0; margin: 0; }
 .timeline li { padding: 8px 0 8px 14px; border-left: 3px solid #c7d2fe; margin-left: 4px; }
 .badge.UNPAID { background: #fee2e2; color: #991b1b; }
+.badge.PARTIAL { background: #fef3c7; color: #92400e; }
+.due { display: block; margin-top: 3px; font-size: 12px; color: #92400e; font-weight: 600; }
+.modal-backdrop { position: fixed; inset: 0; background: rgba(15,23,42,.5); display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 50; }
+.modal { background: #fff; border-radius: 12px; padding: 22px; width: 100%; max-width: 420px; box-shadow: 0 10px 30px rgba(0,0,0,.25); }
+.modal h3 { margin: 0 0 4px; font-size: 18px; }
+.modal .or { text-align: center; color: #6b7686; font-size: 12px; margin: 14px 0; }
+.modal .actions { display: flex; gap: 8px; margin-top: 14px; }
+.modal .actions button { flex: 1; }
+.badge.PENDING, .badge.UNINVOICED { background: #e5e9f0; color: #475569; }
+.badge.DOCS_RECEIVED, .badge.GD_FILED { background: #e0e7ff; color: #3730a3; }
+.badge.ASSESSED, .badge.DUTY_PAID { background: #fef3c7; color: #92400e; }
+.badge.EXAMINATION { background: #ffedd5; color: #9a3412; }
+.badge.RELEASED { background: #dcfce7; color: #166534; }
