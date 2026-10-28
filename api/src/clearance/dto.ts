@@ -37,6 +37,15 @@ export class UpdateClearanceDto {
   @IsOptional() @IsObject() details?: Record<string, string>;
 
   @IsOptional() @IsNumber() @Min(0) assessableValue?: number;
+
+  // PSW collectorate, free text (empty string clears it)
+  @IsOptional() @IsString() collectorate?: string;
+  // empty string clears it
+  @IsOptional() @IsIn(['', 'AIR', 'SEA', 'ROAD', 'RAIL']) modeOfTransport?: string;
+  @IsOptional() @IsString() virNumber?: string;
+
+  // assessed duties: cess, customsDuty, salesTax, additionalSalesTax, incomeTax (PKR)
+  @IsOptional() @IsObject() duties?: Record<string, number>;
   // empty string clears it, undefined keeps it
   @IsOptional() @IsString() gdNo?: string;
 

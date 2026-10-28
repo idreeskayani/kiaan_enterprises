@@ -12,7 +12,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CreateClearanceDto, UpdateClearanceDto } from './dto.js';
 import { buildClearancePdf } from './clearance.pdf.js';
-import { CHARGE_CODES, DETAIL_KEYS } from './charges.js';
+import { CHARGE_CODES, DETAIL_KEYS, DUTY_KEYS } from './charges.js';
 
 type Line = { code: string; label: string; amount: number };
 
@@ -28,6 +28,16 @@ export class ClearanceService {
     for (const k of DETAIL_KEYS) {
       const v = d?.[k];
       if (typeof v === 'string' && v.trim()) out[k] = v.trim().slice(0, 200);
+    }
+    return out;
+  }
+
+  // Keep only the known duty heads as non-negative whole rupees.
+  private cleanDuties(d?: Record<string, unknown> | null) {
+    const out: Record<string, number> = {};
+    for (const { key } of DUTY_KEYS) {
+      const n = Number(d?.[key]);
+      if (Number.isFinite(n) && n > 0) out[key] = Math.round(n);
     }
     return out;
   }
@@ -129,7 +139,14 @@ export class ClearanceService {
     }
     const av = dto.assessableValue ?? Number(job.assessableValue);
     const existing = (job.lines as unknown as Line[]).map((l) => ({ code: l.code, amount: l.amount }));
-    const { lines, total } = this.build(dto.charges ?? existing);
+    // the duty breakdown (cess, customs duty, sales tax ...) adds up into charge 101
+    const duties = this.cleanDuties((dto.duties ?? job.duties) as Record<string, unknown>);
+    const dutyTotal = Object.values(duties).reduce((s, n) => s + n, 0);
+    let source = dto.charges ?? existing;
+    if (dutyTotal > 0) {
+      source = [...source.filter((c) => c.code !== '101'), { code: '101', amount: dutyTotal }];
+    }
+    const { lines, total } = this.build(source);
     const text = (v: string | undefined) => (v === undefined ? undefined : v.trim() || null);
 
     await this.prisma.clearanceJob.update({
@@ -143,6 +160,10 @@ export class ClearanceService {
           ? (this.cleanDetails(dto.details) as Prisma.InputJsonValue)
           : undefined,
         assessableValue: av,
+        collectorate: text(dto.collectorate?.slice(0, 200)),
+        modeOfTransport: text(dto.modeOfTransport),
+        virNumber: text(dto.virNumber?.toUpperCase()),
+        duties: dto.duties ? (duties as Prisma.InputJsonValue) : undefined,
         gdNo: text(dto.gdNo),
         lines: lines as unknown as Prisma.InputJsonValue,
         total,
@@ -235,6 +256,9 @@ export class ClearanceService {
       customerPhone: job.customerPhone,
       customerTax: job.customerTax,
       details: job.details,
+      collectorate: job.collectorate,
+      virNumber: job.virNumber,
+      duties: job.duties,
       lines: (job.lines as unknown as Line[]).map((l) => ({ code: l.code, amount: l.amount })),
     });
     return { buffer, filename: `${job.invoiceNo}.pdf` };

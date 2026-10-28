@@ -42,3 +42,15 @@ export const DETAIL_KEYS = [
   'demBillNo',
   'wNo',
 ];
+
+// Duties & taxes of the assessed items (WeBOC "Duties Information"), in print order.
+// The total is calculated, so it is not listed here.
+export const DUTY_KEYS: { key: string; label: string }[] = [
+  { key: 'cess', label: 'CESS' },
+  { key: 'customsDuty', label: 'Customs Duty' },
+  { key: 'salesTax', label: 'Sales Tax' },
+  { key: 'additionalSalesTax', label: 'Additional Sales Tax' },
+  { key: 'incomeTax', label: 'Income Tax' },
+];
+
+export const TRANSPORT_MODES = ['AIR', 'SEA', 'ROAD', 'RAIL'] as const;

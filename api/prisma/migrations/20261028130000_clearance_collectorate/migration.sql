@@ -1,0 +1,1 @@
+ALTER TABLE "ClearanceJob" ADD COLUMN IF NOT EXISTS "collectorate" TEXT;

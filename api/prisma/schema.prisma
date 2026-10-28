@@ -207,6 +207,10 @@ model ClearanceJob {
   hsCodeId        String?
   hsCode          HsCode?            @relation(fields: [hsCodeId], references: [id])
   assessableValue Decimal            @default(0) @db.Decimal(14, 2)
+  collectorate    String?
+  modeOfTransport String?
+  virNumber       String?
+  duties          Json               @default("{}")
   gdNo            String?
   status          ClearanceStatus    @default(PENDING)
   includeFreight  Boolean            @default(false)

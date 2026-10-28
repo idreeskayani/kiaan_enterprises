@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom';
 import { api, getUser, openClearancePdf } from '../api';
 import { Badge, fmt } from '../components';
 import { CLEARANCE_STATUSES, label } from '../constants';
-import { CHARGE_CODES } from '../Charges';
+import { CHARGE_CODES, COLLECTORATES, DUTY_KEYS, TRANSPORT_MODES, VIR_PREFIX, buildVir } from '../Charges';
 
 const DETAIL_FIELDS: [string, string, 'text' | 'date'][] = [
   ['expressOn', 'Express On', 'text'],
@@ -36,6 +36,12 @@ export default function ClearanceDetail() {
   const [det, setDet] = useState<Record<string, string>>({});
   const [value, setValue] = useState('');
   const [gdNo, setGdNo] = useState('');
+  const [collectorate, setCollectorate] = useState('');
+  const [mode, setMode] = useState('');
+  const [virSerial, setVirSerial] = useState('');
+  const [vir, setVir] = useState('');
+  // duty head -> amount typed in (assessed items)
+  const [duties, setDuties] = useState<Record<string, string>>({});
   // charge code -> amount typed in
   const [charges, setCharges] = useState<Record<string, string>>({});
 
@@ -56,6 +62,13 @@ export default function ClearanceDetail() {
       setDet(j.details ?? {});
       setValue(String(Number(j.assessableValue)));
       setGdNo(j.gdNo ?? '');
+      setCollectorate(j.collectorate ?? '');
+      setMode(j.modeOfTransport ?? '');
+      setVir(j.virNumber ?? '');
+      setVirSerial((j.virNumber ?? '').split('-')[1] ?? '');
+      const dd: Record<string, string> = {};
+      for (const [k, v] of Object.entries(j.duties ?? {})) dd[k] = String(v);
+      setDuties(dd);
       const c: Record<string, string> = {};
       for (const l of j.lines as any[]) if (l.code) c[l.code] = String(l.amount);
       setCharges(c);
@@ -82,6 +95,8 @@ export default function ClearanceDetail() {
     }
   }
 
+  const dutyTotalNow = () => DUTY_KEYS.reduce((t, d) => t + (Number(duties[d.key]) || 0), 0);
+
   const save = () =>
     run(() =>
       api(`/clearance/${id}`, {
@@ -94,10 +109,15 @@ export default function ClearanceDetail() {
           details: det,
           assessableValue: Number(value) || 0,
           gdNo: gdNo.trim(),
-          charges: CHARGE_CODES.filter((c) => Number(charges[c.code]) > 0).map((c) => ({
+          collectorate: collectorate.trim(),
+          modeOfTransport: mode,
+          virNumber: vir.trim(),
+          duties: Object.fromEntries(DUTY_KEYS.map((d) => [d.key, Number(duties[d.key]) || 0])),
+          charges: CHARGE_CODES.map((c) => ({
             code: c.code,
-            amount: Number(charges[c.code]),
-          })),
+            amount:
+              c.code === '101' && dutyTotalNow() > 0 ? dutyTotalNow() : Number(charges[c.code]) || 0,
+          })).filter((c) => c.amount > 0),
         },
       }),
     );
@@ -106,18 +126,80 @@ export default function ClearanceDetail() {
 
   const locked = !!job.invoiceNo;
   const edit = canWork && !locked;
-  const setD = (k: string, v: string) => setDet({ ...det, [k]: v });
+  const setD = (k: string, v: string) => {
+    const next = { ...det, [k]: v };
+    setDet(next);
+    // the VIR date follows the G.D / B/E date
+    if (k === 'beDate') {
+      const b = buildVir(mode, virSerial, v);
+      if (b) setVir(b);
+    }
+  };
+  // VIR number follows the mode of transport (prefix), serial and G.D / B/E date
+  const changeMode = (m: string) => {
+    setMode(m);
+    const b = buildVir(m, virSerial, det.beDate ?? '');
+    if (b) setVir(b);
+  };
+  const changeSerial = (v: string) => {
+    setVirSerial(v);
+    const b = buildVir(mode, v, det.beDate ?? '');
+    if (b) setVir(b);
+  };
+  const dutyTotal = DUTY_KEYS.reduce((s, d) => s + (Number(duties[d.key]) || 0), 0);
+  const prefix = VIR_PREFIX[mode];
   
   return (
     <>
       <div className="row" style={{ marginBottom: 14 }}>
-        <h1 style={{ margin: 0, flex: 4 }}>{job.jobNo}</h1>
+        <h1 style={{ margin: 0, flex: 4 }}>
+          {job.jobNo}
+          {job.invoiceNo && <span className="muted" style={{ fontSize: 16, marginLeft: 12 }}>{job.invoiceNo}</span>}
+        </h1>
         <Badge status={job.status} />
       </div>
       {error && <div className="error">{error}</div>}
       {locked && (
         <p className="muted">An invoice has been generated. Delete the invoice below to edit the details and charges.</p>
       )}
+
+      <div className="card">
+        <h3>Tracking: collectorate, mode of transport &amp; VIR</h3>
+        <div className="row" style={{ marginBottom: 8 }}>
+          <div style={{ flex: 1 }}>
+            <label>Collectorate</label>
+            <input list="collectorates" value={collectorate} disabled={!edit}
+              placeholder="Select or type collectorate" onChange={(e) => setCollectorate(e.target.value)} />
+            <datalist id="collectorates">
+              {COLLECTORATES.map((c) => <option key={c} value={c} />)}
+            </datalist>
+          </div>
+        </div>
+        <div className="row">
+          <div>
+            <label>Mode of Transport</label>
+            <select value={mode} disabled={!edit} onChange={(e) => changeMode(e.target.value)}>
+              <option value="">Select</option>
+              {TRANSPORT_MODES.map(([k, text]) => <option key={k} value={k}>{text}</option>)}
+            </select>
+          </div>
+          <div>
+            <label>VIR serial</label>
+            <input value={virSerial} disabled={!edit} placeholder="0569" onChange={(e) => changeSerial(e.target.value)} />
+          </div>
+          <div style={{ flex: 2 }}>
+            <label>VIR Number</label>
+            <input value={vir} disabled={!edit} placeholder="IPAF-0569-11022024"
+              onChange={(e) => setVir(e.target.value.toUpperCase())} />
+          </div>
+        </div>
+        {edit && mode && !prefix && (
+          <p className="muted">No VIR prefix is set for this mode yet. Type the VIR number by hand.</p>
+        )}
+        {edit && prefix && !det.beDate && (
+          <p className="muted">Set the Dated (G.D / B/E) field above and the VIR number fills in automatically.</p>
+        )}
+      </div>
 
       <div className="card">
         <h3>Bill details</h3>
@@ -163,13 +245,38 @@ export default function ClearanceDetail() {
       <div className="card">
         <h3>Charges (PKR) - fill only the ones you need</h3>
         <div className="row" style={{ flexWrap: 'wrap', gap: 10 }}>
-          {CHARGE_CODES.map((c) => (
-            <div key={c.code} style={{ flex: '1 1 260px' }}>
-              <label>{c.code} · {c.label}</label>
-              <input type="number" min="0" step="any" value={charges[c.code] ?? ''} disabled={!edit}
-                onChange={(e) => setCharges({ ...charges, [c.code]: e.target.value })} />
-            </div>
-          ))}
+          {CHARGE_CODES.map((c) =>
+            c.code === '101' ? (
+              <div key={c.code} style={{ flex: '1 1 100%' }}>
+                <label>{c.code} · {c.label}</label>
+                <input type="number" min="0" step="any"
+                  value={dutyTotal > 0 ? String(dutyTotal) : charges[c.code] ?? ''}
+                  disabled={!edit || dutyTotal > 0}
+                  onChange={(e) => setCharges({ ...charges, [c.code]: e.target.value })} />
+                <div style={{ margin: '8px 0 4px 18px', paddingLeft: 12, borderLeft: '3px solid #cbd5e1' }}>
+                  <label>Where this customs duty goes (PKR) - the total fills 101 automatically</label>
+                  <div className="row" style={{ flexWrap: 'wrap', gap: 10 }}>
+                    {DUTY_KEYS.map((d) => (
+                      <div key={d.key} style={{ flex: '1 1 140px' }}>
+                        <label>{d.label}</label>
+                        <input type="number" min="0" step="any" value={duties[d.key] ?? ''} disabled={!edit}
+                          onChange={(e) => setDuties({ ...duties, [d.key]: e.target.value })} />
+                      </div>
+                    ))}
+                  </div>
+                  <div className="muted" style={{ marginTop: 6 }}>
+                    Total customs duty: <b>{fmt(dutyTotal)}</b>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div key={c.code} style={{ flex: '1 1 260px' }}>
+                <label>{c.code} · {c.label}</label>
+                <input type="number" min="0" step="any" value={charges[c.code] ?? ''} disabled={!edit}
+                  onChange={(e) => setCharges({ ...charges, [c.code]: e.target.value })} />
+              </div>
+            ),
+          )}
         </div>
         {edit && (
           <div className="row" style={{ marginTop: 12 }}>
