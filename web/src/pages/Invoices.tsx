@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, openPdf } from '../api';
 import { Badge, fmt } from '../components';
+import { ShareButton } from '../Share';
 
 export default function Invoices() {
   const [payment, setPayment] = useState('');
@@ -157,6 +158,8 @@ export default function Invoices() {
                   <td>
                     <div className="row" style={{ gap: 6 }}>
                       <button className="ghost small" onClick={() => act(() => openPdf(r.id))}>PDF</button>
+                      <ShareButton path={`/invoices/${r.id}/pdf`} invoiceNo={r.invoiceNo}
+                        company="Kiaan Freight Services" customer={r.shipment.customer.name} total={r.total} />
                       {paid ? (
                         <button
                           className="small"

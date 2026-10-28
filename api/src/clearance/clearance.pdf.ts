@@ -113,19 +113,15 @@ export function buildClearancePdf(job: ClearancePdfJob): Promise<Buffer> {
       amount: job.lines.find((l) => l.code === c.code)?.amount,
     })).filter((r) => r.amount != null && Number(r.amount) > 0);
 
-    const av = Number(job.assessableValue);
     // customs duty breakdown: printed as its own block only when it was entered
     const dRaw: Record<string, any> = job.duties && typeof job.duties === 'object' ? job.duties : {};
     const dutyVals = DUTY_KEYS.map((k) => Math.round(Number(dRaw[k.key]) || 0));
     const dutyTotal = dutyVals.reduce((t, n) => t + n, 0);
     const showDuty = dutyTotal > 0;
-    // lines listed inside the 101 row: assessed value (text only) and each duty head that has an amount
-    const subs: { label: string; amount: string }[] = [
-      ...(showDuty && av > 0 ? [{ label: `Assessed Value: Rs. ${split(av).rs}`, amount: '' }] : []),
-      ...(showDuty
-        ? DUTY_KEYS.map((k, i) => ({ label: k.label, amount: dutyVals[i] ? split(dutyVals[i]).rs : '' })).filter((x) => x.amount)
-        : []),
-    ];
+    // lines listed inside the 101 row: each duty head that has an amount (they add up to the 101 amount)
+    const subs: { label: string; amount: string }[] = showDuty
+      ? DUTY_KEYS.map((k, i) => ({ label: k.label, amount: dutyVals[i] ? split(dutyVals[i]).rs : '' })).filter((x) => x.amount)
+      : [];
     const SUB_K = 0.92; // sub-line height as a share of a normal row
     const totalNum = Number(job.total);
     const whole = Math.floor(totalNum + 1e-9);
@@ -146,9 +142,10 @@ export function buildClearancePdf(job: ClearancePdfJob): Promise<Buffer> {
     const BH = 46;
     const NOTE_H = 15;
     const termsH = 12 + COMPANY.terms.length * 8.2 + 5;
-    const hasContact = !!(job.customerAddress || job.customerPhone || job.customerTax);
+    const hasAddress = has(job.customerAddress);
+    const hasTelNtn = has(job.customerPhone) || has(job.customerTax);
     const hasTracking = has(job.collectorate) || has(job.virNumber);
-    const hdrRows = 2 + (hasTracking ? 1 : 0) + (hasContact ? 1 : 0) + Math.ceil(optional.length / 2);
+    const hdrRows = 2 + (hasTracking ? 1 : 0) + (hasAddress ? 1 : 0) + (hasTelNtn ? 1 : 0) + Math.ceil(optional.length / 2);
     // the 101 row grows by its breakdown lines
     const bodyUnits = rows.length + (showDuty ? subs.length * SUB_K + 0.25 : 0);
     const rawTop = topImg ? imgH(topImg) : 96;
@@ -224,8 +221,8 @@ export function buildClearancePdf(job: ClearancePdfJob): Promise<Buffer> {
     };
 
     // "Label: value" with a thin line under it. Label and value share one baseline.
-    const field = (label: string, value: string, x: number, yy: number, w: number, bold = true) => {
-      doc.font('Helvetica').fontSize(9).fillColor('#000');
+    const field = (label: string, value: string, x: number, yy: number, w: number, bold = true, boldLabel = false) => {
+      doc.font(boldLabel ? 'Helvetica-Bold' : 'Helvetica').fontSize(9).fillColor('#000');
       const lw = doc.widthOfString(label) + 3;
       doc.text(label, x, yy, { lineBreak: false });
       doc.font(bold ? 'Helvetica-Bold' : 'Helvetica');
@@ -262,9 +259,14 @@ export function buildClearancePdf(job: ClearancePdfJob): Promise<Buffer> {
     const ensure = (_h: number) => {};
 
     // ---- header, same lines as the printed bill (empty fields are not printed)
-    field('', job.invoiceNo, L, y, HALF - 70);
-    doc.font('Helvetica-Bold').fontSize(13).fillColor('#000').text('Bill Invoice', L + HALF - 60, y - 2, { lineBreak: false });
-    field('Dated ', invDate, RX, y, HALF);
+    // invoice no. on the left, the title centred on the page, the date on the right
+    field('', job.invoiceNo, L, y, 170);
+    doc
+      .font('Helvetica-Bold')
+      .fontSize(15)
+      .fillColor('#000')
+      .text('Bill Invoice', L, y - 3, { width: FULL, align: 'center', lineBreak: false, underline: true });
+    field('Dated ', invDate, R - 150, y, 150);
     y += ROWH;
 
     // tracking: collectorate and VIR number, right under the invoice number
@@ -278,15 +280,15 @@ export function buildClearancePdf(job: ClearancePdfJob): Promise<Buffer> {
     field('Mr./M/s. ', `${job.customerName}${commodity}`, L, y, FULL);
     y += ROWH;
 
-    const contact = [
-      job.customerAddress,
-      job.customerPhone ? `Tel: ${job.customerPhone}` : '',
-      job.customerTax ? `NTN: ${job.customerTax}` : '',
-    ]
-      .filter(Boolean)
-      .join('   ');
-    if (contact) {
-      field('Address: ', contact, L, y, FULL, false);
+    if (hasAddress) {
+      field('Address: ', String(job.customerAddress), L, y, FULL, false);
+      y += ROWH;
+    }
+
+    // telephone and NTN: separate bold fields, each in its own place on one row
+    if (hasTelNtn) {
+      if (has(job.customerPhone)) field('Tel: ', String(job.customerPhone), L, y, HALF, true, true);
+      if (has(job.customerTax)) field('NTN: ', String(job.customerTax), RX, y, HALF, true, true);
       y += ROWH;
     }
 

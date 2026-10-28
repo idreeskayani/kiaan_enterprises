@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { api, getUser, openClearancePdf } from '../api';
 import { Badge, fmt } from '../components';
 import { TrashIcon } from '../Icons';
+import { ShareButton } from '../Share';
 
 export default function ClearanceInvoices() {
   const [sp] = useSearchParams();
@@ -168,6 +169,8 @@ export default function ClearanceInvoices() {
                   <td>
                     <div className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
                       <button type="button" className="ghost small" onClick={() => view(r.id)}>View</button>
+                      <ShareButton path={`/clearance/${r.id}/pdf`} invoiceNo={r.invoiceNo}
+                        company="TNI Enterprises" customer={r.customerName} total={r.total} />
                       {canPay && (paid ? (
                         <button type="button" className="small" onClick={() => markUnpaid(r)}>Mark unpaid</button>
                       ) : (

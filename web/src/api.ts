@@ -50,6 +50,12 @@ export async function openClearancePdf(jobId: string, win?: Window | null) {
   showBlob(await res.blob(), win);
 }
 
+export async function fetchPdfBlob(path: string): Promise<Blob> {
+  const res = await fetch(`${BASE}${path}`, { headers: { Authorization: `Bearer ${getToken()}` } });
+  if (!res.ok) throw new Error('Could not load the PDF');
+  return res.blob();
+}
+
 function showBlob(blob: Blob, win?: Window | null) {
   const url = URL.createObjectURL(blob);
   if (win && !win.closed) win.location.href = url;

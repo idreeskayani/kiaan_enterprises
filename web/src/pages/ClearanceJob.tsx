@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api, getUser, openClearancePdf } from '../api';
+import { ShareButton } from '../Share';
 import { Badge, fmt } from '../components';
 import { CLEARANCE_STATUSES, PAYMENT_STATES, label } from '../constants';
 import { TrashIcon } from '../Icons';
@@ -125,6 +126,8 @@ export default function ClearanceJobs() {
                   {r.invoiceNo && (
                     <>
                       <button type="button" className="ghost small" onClick={() => view(r.id)}>View</button>{' '}
+                      <ShareButton path={`/clearance/${r.id}/pdf`} invoiceNo={r.invoiceNo}
+                        company="TNI Enterprises" customer={r.customerName} total={r.total} />{' '}
                       {canWork && (
                         <button type="button" className="ghost small" title="Delete invoice"
                           aria-label="Delete invoice" onClick={() => removeInvoice(r)}><TrashIcon /></button>

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { api, getUser, openClearancePdf } from '../api';
 import { Badge, fmt } from '../components';
+import { ShareButton } from '../Share';
 import { CLEARANCE_STATUSES, label } from '../constants';
 import { CHARGE_CODES, COLLECTORATES, DUTY_KEYS, TRANSPORT_MODES, VIR_PREFIX, buildVir } from '../Charges';
 
@@ -37,6 +38,7 @@ export default function ClearanceDetail() {
   const [value, setValue] = useState('');
   const [gdNo, setGdNo] = useState('');
   const [collectorate, setCollectorate] = useState('');
+  const [otherColl, setOtherColl] = useState(false); // typing a collectorate that is not in the list
   const [mode, setMode] = useState('');
   const [virSerial, setVirSerial] = useState('');
   const [vir, setVir] = useState('');
@@ -148,7 +150,7 @@ export default function ClearanceDetail() {
   };
   const dutyTotal = DUTY_KEYS.reduce((s, d) => s + (Number(duties[d.key]) || 0), 0);
   const prefix = VIR_PREFIX[mode];
-  
+
   return (
     <>
       <div className="row" style={{ marginBottom: 14 }}>
@@ -168,11 +170,27 @@ export default function ClearanceDetail() {
         <div className="row" style={{ marginBottom: 8 }}>
           <div style={{ flex: 1 }}>
             <label>Collectorate</label>
-            <input list="collectorates" value={collectorate} disabled={!edit}
-              placeholder="Select or type collectorate" onChange={(e) => setCollectorate(e.target.value)} />
-            <datalist id="collectorates">
-              {COLLECTORATES.map((c) => <option key={c} value={c} />)}
-            </datalist>
+            <select
+              value={otherColl || (collectorate !== '' && !COLLECTORATES.includes(collectorate)) ? '__other' : collectorate}
+              disabled={!edit}
+              onChange={(e) => {
+                if (e.target.value === '__other') {
+                  setOtherColl(true);
+                  if (COLLECTORATES.includes(collectorate)) setCollectorate('');
+                } else {
+                  setOtherColl(false);
+                  setCollectorate(e.target.value);
+                }
+              }}
+            >
+              <option value="">Select collectorate</option>
+              {COLLECTORATES.map((c) => <option key={c} value={c}>{c}</option>)}
+              <option value="__other">Other (type it)</option>
+            </select>
+            {(otherColl || (collectorate !== '' && !COLLECTORATES.includes(collectorate))) && (
+              <input style={{ marginTop: 6 }} value={collectorate} disabled={!edit}
+                placeholder="Type the collectorate name" onChange={(e) => setCollectorate(e.target.value)} />
+            )}
           </div>
         </div>
         <div className="row">
@@ -346,6 +364,8 @@ export default function ClearanceDetail() {
             <div><b>{fmt(job.total)}</b></div>
             <button className="ghost" style={{ flex: 'none' }}
               onClick={() => run(() => openClearancePdf(job.id))}>View</button>
+            <ShareButton className="ghost" path={`/clearance/${job.id}/pdf`} invoiceNo={job.invoiceNo}
+              company="TNI Enterprises" customer={job.customerName} total={job.total} />
             {canWork && (
               <button className="ghost" style={{ flex: 'none' }} disabled={busy}
                 onClick={() => {
