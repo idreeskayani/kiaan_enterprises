@@ -10,11 +10,24 @@ type Props = {
   total?: number | string;
   label?: string;
   className?: string;
+  docLabel?: string; // 'invoice' (default) or 'quotation'
+  onShared?: () => void; // called when the PDF is sent / downloaded
+  defaultOpen?: boolean; // open the popup straight away
+  hideButton?: boolean; // popup only, no button
+  onClose?: () => void;
 };
 
 // "Share" button + popup: WhatsApp, Gmail, the device share sheet, or just download the PDF.
-export function ShareButton({ path, invoiceNo, company, customer, total, label = 'Share', className = 'ghost small' }: Props) {
-  const [open, setOpen] = useState(false);
+export function ShareButton({
+  path, invoiceNo, company, customer, total, label = 'Share', className = 'ghost small',
+  docLabel = 'invoice', onShared, defaultOpen = false, hideButton = false, onClose,
+}: Props) {
+  const [open, setOpenState] = useState(defaultOpen);
+  const setOpen = (v: boolean) => {
+    setOpenState(v);
+    if (!v) onClose?.();
+  };
+  const Doc = docLabel[0].toUpperCase() + docLabel.slice(1);
   const [blob, setBlob] = useState<Blob | null>(null);
   const [error, setError] = useState('');
   const [note, setNote] = useState('');
@@ -23,9 +36,9 @@ export function ShareButton({ path, invoiceNo, company, customer, total, label =
   // file name = invoice no + customer name, without characters Windows does not allow
   const safe = (v: string) => v.replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim();
   const filename = `${safe(invoiceNo)}${customer ? ` - ${safe(customer)}` : ''}.pdf`;
-  const subject = `Invoice ${invoiceNo} - ${company}`;
+  const subject = `${Doc} ${invoiceNo} - ${company}`;
   const text =
-    `Assalam o Alaikum,\n\nPlease find attached invoice ${invoiceNo} from ${company}` +
+    `Assalam o Alaikum,\n\nPlease find attached ${docLabel} ${invoiceNo} from ${company}` +
     `${customer ? ` for ${customer}` : ''}.` +
     `${total != null && total !== '' ? `\nTotal amount: PKR ${fmt(total)}` : ''}\n\nRegards,\n${company}`;
 
@@ -62,6 +75,7 @@ export function ShareButton({ path, invoiceNo, company, customer, total, label =
 
   function download() {
     if (!blob) return;
+    onShared?.();
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -102,11 +116,11 @@ export function ShareButton({ path, invoiceNo, company, customer, total, label =
 
   return (
     <>
-      <button type="button" className={className} onClick={() => setOpen(true)}>{label}</button>
+      {!hideButton && <button type="button" className={className} onClick={() => setOpen(true)}>{label}</button>}
       {open && (
         <div className="modal-backdrop" onClick={() => setOpen(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h3>Share invoice</h3>
+            <h3>{docLabel === 'invoice' ? 'Share invoice' : `Send ${docLabel}`}</h3>
             <p className="muted" style={{ margin: '0 0 14px' }}>
               {invoiceNo}{customer ? ` · ${customer}` : ''}
             </p>

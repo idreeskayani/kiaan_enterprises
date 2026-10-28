@@ -35,6 +35,10 @@ export class InvoicesService {
     if (shipment.status === ShipmentStatus.CANCELLED) {
       throw new ConflictException('Cannot invoice a cancelled shipment');
     }
+    // invoice goes out only after delivery
+    if (shipment.status !== ShipmentStatus.DELIVERED) {
+      throw new ConflictException('The shipment must be delivered before it can be invoiced');
+    }
 
     const q = await this.shipments.quoteForShipment(shipmentId);
     const invoiceNo = await this.nextInvoiceNo();

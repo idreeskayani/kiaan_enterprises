@@ -56,6 +56,7 @@ model Customer {
   address   String?
   taxNumber String?
   shipments Shipment[]
+  quotations Quotation[]
 }
 
 model Shipment {
@@ -96,6 +97,7 @@ model Shipment {
   invoice         Invoice?
   createdAt       DateTime        @default(now())
   clearance        ClearanceJob?
+  quotation       Quotation?
 }
 
 model ShipmentItem {
@@ -235,4 +237,27 @@ model ClearanceHistory {
   userId String
   user   User            @relation(fields: [userId], references: [id])
   at     DateTime        @default(now())
+}
+
+enum QuotationStatus {
+  SENT
+  ACCEPTED
+  REJECTED
+  EXPIRED
+  DRAFT
+}
+
+// A price offer. Accepting it creates the Shipment (BOOKED) from the saved payload.
+model Quotation {
+  id         String          @id @default(uuid())
+  quoteNo    String          @unique
+  customerId String
+  customer   Customer        @relation(fields: [customerId], references: [id])
+  payload    Json
+  total      Decimal         @db.Decimal(14, 2)
+  validUntil DateTime
+  status     QuotationStatus @default(DRAFT)
+  shipmentId String?         @unique
+  shipment   Shipment?       @relation(fields: [shipmentId], references: [id], onDelete: SetNull)
+  createdAt  DateTime        @default(now())
 }

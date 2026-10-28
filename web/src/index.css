@@ -53,3 +53,9 @@ button:disabled { opacity: .6; cursor: default; }
 .badge.ASSESSED, .badge.DUTY_PAID { background: #fef3c7; color: #92400e; }
 .badge.EXAMINATION { background: #ffedd5; color: #9a3412; }
 .badge.RELEASED { background: #dcfce7; color: #166534; }
+/* quotation statuses */
+.badge.SENT { background: #fef3c7; color: #92400e; }
+.badge.DRAFT { background: #e5e9f0; color: #475569; }
+.badge.ACCEPTED { background: #dcfce7; color: #166534; }
+.badge.REJECTED { background: #fee2e2; color: #991b1b; }
+.badge.EXPIRED { background: #e5e9f0; color: #475569; }

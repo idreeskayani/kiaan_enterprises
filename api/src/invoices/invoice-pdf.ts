@@ -36,7 +36,17 @@ const LABELS: Record<
   ROAD: { dept: 'ROAD', line: 'Transporter', master: 'Waybill No.', house: 'Ref No.', dO: 'D/O#' },
 };
 
+// Quotations reuse this layout (title, numbers, note and terms change).
+const QUOTE_TERMS = (validUntil: any) => [
+  `1) This quotation is valid until ${fmtDate(validUntil)}.`,
+  '2) The exchange rate shown applies to this quotation. The rate on the invoice date may differ.',
+  "3) Goods stored in our godown are at the owner's risk.",
+  '4) All legal matters are subject to the jurisdiction of the local courts only.',
+];
+
 export type PdfInvoice = {
+  kind?: 'invoice' | 'quotation';
+  validUntil?: any; // quotations only
   invoiceNo: string;
   status: string;
   issuedAt: Date;
@@ -194,6 +204,8 @@ export function buildInvoicePdf(inv: PdfInvoice): Promise<Buffer> {
     const t = LABELS[s.mode] ?? LABELS.AIR;
     const d: Record<string, any> = s.details && typeof s.details === 'object' ? s.details : {};
     const direction = String(d.direction || 'IMPORT').toUpperCase();
+    const isQuote = inv.kind === 'quotation';
+    const terms = isQuote ? QUOTE_TERMS(inv.validUntil) : COMPANY.terms;
     const invDate = inv.issuedAt.toLocaleDateString('en-GB');
     const airline = [d.airline, s.flight].filter(Boolean).join(' / ');
 
@@ -232,7 +244,7 @@ export function buildInvoicePdf(inv: PdfInvoice): Promise<Buffer> {
     const boxH = 32 + 15 + 7 * ROW;
 
     // right: INVOICE
-    cell(RX, y, RW, 32, 'INVOICE', { bold: true, size: 18, align: 'center' });
+    cell(RX, y, RW, 32, isQuote ? 'QUOTATION' : 'INVOICE', { bold: true, size: 18, align: 'center' });
     let ry = y + 32;
     cell(RX, ry, c1 + c2, 15, `DEPARTMENT : ${t.dept} - ${direction}`, { bold: true, size: 9 });
     cell(RX + c1 + c2, ry, c3, 15, 'NTN', { bold: true });
@@ -245,8 +257,13 @@ export function buildInvoicePdf(inv: PdfInvoice): Promise<Buffer> {
       cell(RX + c1 + c2 + c3, ry, c4, ROW, v4);
       ry += ROW;
     };
-    grid('Invoice No.', inv.status === 'PREVIEW' ? 'PREVIEW' : inv.invoiceNo, 'Date', invDate, true);
-    grid('Job No.', s.refNo, 'Date', invDate, true);
+    if (isQuote) {
+      grid('Quote No.', inv.invoiceNo, 'Date', invDate, true);
+      grid('Valid Until', fmtDate(inv.validUntil), '', '', true);
+    } else {
+      grid('Invoice No.', inv.status === 'PREVIEW' ? 'PREVIEW' : inv.invoiceNo, 'Date', invDate, true);
+      grid('Job No.', s.refNo, 'Date', invDate, true);
+    }
     grid(t.dO, d.doNo ?? '', 'Date', fmtDate(d.doDate));
     grid('IGM No.', d.igmNo ?? '', 'Date', fmtDate(d.igmDate));
     grid('B/E No.', d.beNo ?? '', 'Date', fmtDate(d.beDate));
@@ -406,7 +423,7 @@ export function buildInvoicePdf(inv: PdfInvoice): Promise<Buffer> {
       .font('Helvetica-Bold')
       .fontSize(8)
       .fillColor('#000')
-      .text('This is a computer generated invoice. No signature or stamp is required.', L, y, {
+      .text(`This is a computer generated ${isQuote ? 'quotation' : 'invoice'}. No signature or stamp is required.`, L, y, {
         width: FULL,
         align: 'center',
       });
@@ -426,7 +443,7 @@ export function buildInvoicePdf(inv: PdfInvoice): Promise<Buffer> {
     y += 4 * 11 + 8;
 
     // ---- terms & conditions (bottom of the page, above the footer)
-    const termsH = 14 + COMPANY.terms.length * 9 + 6;
+    const termsH = 14 + terms.length * 9 + 6;
     if (y > footerTop - termsH - 8) {
       doc.addPage();
     }
@@ -434,7 +451,7 @@ export function buildInvoicePdf(inv: PdfInvoice): Promise<Buffer> {
     doc.lineWidth(0.5).strokeColor('#000').rect(L, ty, FULL, termsH).stroke();
     doc.font('Helvetica-Bold').fontSize(8).fillColor('#000').text('Terms & Conditions:', L + 4, ty + 3);
     doc.font('Helvetica').fontSize(6.5);
-    COMPANY.terms.forEach((line, i) =>
+    terms.forEach((line, i) =>
       doc.text(line, L + 4, ty + 14 + i * 9, { width: FULL - 8, height: 8, ellipsis: true }),
     );
 

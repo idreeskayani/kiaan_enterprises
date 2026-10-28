@@ -15,7 +15,7 @@ export const setUser = (u: unknown) =>
 
 export async function api<T = any>(
   path: string,
-  options: { method?: string; body?: unknown } = {},
+  options: { method?: string; body?: unknown; keepalive?: boolean } = {},
 ): Promise<T> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   const token = getToken();
@@ -25,6 +25,7 @@ export async function api<T = any>(
     method: options.method ?? 'GET',
     headers,
     body: options.body ? JSON.stringify(options.body) : undefined,
+    keepalive: options.keepalive,
   });
 
   if (res.status === 401 && path !== '/auth/login') {
@@ -74,8 +75,8 @@ export async function openPdf(invoiceId: string, win?: Window | null) {
 }
 
 // Preview only: the server builds a PDF from the form data and saves nothing.
-export async function previewPdf(body: unknown, win?: Window | null) {
-  const res = await fetch(`${BASE}/invoices/preview`, {
+export async function previewPdf(body: unknown, win?: Window | null, path = '/invoices/preview') {
+  const res = await fetch(`${BASE}${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
     body: JSON.stringify(body),
@@ -85,6 +86,17 @@ export async function previewPdf(body: unknown, win?: Window | null) {
     const data = await res.json().catch(() => null);
     const m = data?.message;
     throw new Error(Array.isArray(m) ? m.join(', ') : (m ?? 'Could not build the preview'));
+  }
+  showBlob(await res.blob(), win);
+}
+
+export async function openQuotationPdf(quotationId: string, win?: Window | null) {
+  const res = await fetch(`${BASE}/quotations/${quotationId}/pdf`, {
+    headers: { Authorization: `Bearer ${getToken()}` },
+  });
+  if (!res.ok) {
+    win?.close();
+    throw new Error('Could not load the PDF');
   }
   showBlob(await res.blob(), win);
 }

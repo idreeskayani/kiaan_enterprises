@@ -7,6 +7,7 @@ import { InvoicesModule } from './invoices/invoices.module.js';
 import { PrismaModule } from './prisma/prisma.module.js';
 import { ShipmentsModule } from './shipments/shipments.module.js';
 import { ClearanceModule } from './clearance/clearance.module.js';
+import { QuotationsModule } from './quotations/quotations.module.js';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
@@ -17,6 +18,7 @@ import { ClearanceModule } from './clearance/clearance.module.js';
     ShipmentsModule,
     InvoicesModule,
     ClearanceModule,
+    QuotationsModule,
   ],
 })
 export class AppModule {}

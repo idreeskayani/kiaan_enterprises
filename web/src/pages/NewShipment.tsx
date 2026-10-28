@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api, openPdf, previewPdf } from '../api';
+import { api, previewPdf } from '../api';
+import { ShareButton } from '../Share';
 import { Breakdown, fmt} from '../components';
 
 type Item = { lengthCm: string; widthCm: string; heightCm: string; weightKg: string; qty: string };
@@ -155,7 +156,25 @@ export default function NewShipment() {
     currency,
     exRate: currency === 'PKR' ? undefined : num(exRate),
     doCharges: doCharges !== '' ? num(doCharges) : undefined,
-      
+    blAwbNo: blAwbNo.trim() || undefined,
+    hawbNo: hawbNo.trim() || undefined,
+    flight: flight.trim() || undefined,
+    extraCharges: extras
+      .filter((e) => e.label.trim() && num(e.amount) > 0)
+      .map((e) => ({
+        label: e.label.trim(),
+        amount: num(e.amount),
+        currency: e.currency,
+        exRate: e.currency === 'PKR' || e.currency === currency ? undefined : num(e.exRate),
+      })),
+    details: Object.fromEntries(Object.entries(det).filter(([, v]) => v.trim())),
+    items: items.map((i) => ({
+      lengthCm: num(i.lengthCm),
+      widthCm: num(i.widthCm),
+      heightCm: num(i.heightCm),
+      weightKg: num(i.weightKg),
+      qty: Math.max(1, Math.floor(num(i.qty))),
+    })),
   });
 
   // live calculation (debounced)
@@ -180,6 +199,7 @@ export default function NewShipment() {
   }, [
     mode, origin, destination, goodsValue, freightLabel, currency, exRate,
     ratePerUnit, minCharge, fuelPct, handling, volDivisor, freightOverride, doCharges,
+    items, extras,
   ]);
 
   const setItem = (idx: number, k: keyof Item, v: string) =>
@@ -237,39 +257,47 @@ export default function NewShipment() {
     return '';
   }
 
-  async function submit(withInvoice: boolean) {
+  // ---- quotation: saved as a draft, marked "sent" only when it is actually sent
+  const savedRef = useRef(false); // true once this form has produced a quotation
+  const [sendQuote, setSendQuote] = useState<any>(null);
+
+  const quotationBody = () => ({ ...body(), customerId, eta: eta || undefined });
+
+  async function saveQuotation(send: boolean) {
     const problem = check();
     if (problem) return setError(problem);
-
-    // open the tab now (on click) so the browser does not block it later
-    const win = withInvoice ? window.open('', '_blank') : null;
     setBusy(true);
     setError('');
     try {
       if (saveRate && num(ratePerUnit) > 0) await saveRateCard();
-      const s = await api('/shipments', {
-        method: 'POST',
-        body: { ...body(), customerId, eta: eta || undefined },
-      });
-      if (withInvoice) {
-        try {
-          const inv = await api(`/invoices/shipment/${s.id}`, { method: 'POST' });
-          await openPdf(inv.id, win);
-        } catch (err) {
-          win?.close();
-          window.alert(`Shipment ${s.refNo} was created, but the invoice failed: ${(err as Error).message}`);
-        }
-      }
-      nav(`/shipments/${s.id}`);
+      const q = await api('/quotations', { method: 'POST', body: quotationBody() });
+      savedRef.current = true;
+      if (send) setSendQuote(q); // opens the send popup (WhatsApp / Gmail / download)
+      else nav('/quotations');
     } catch (err) {
-      win?.close();
       setError((err as Error).message);
     } finally {
       setBusy(false);
     }
   }
 
-  async function viewInvoice() {
+  // Leaving the page without sending: keep a complete form as a draft quotation.
+  const autoSave = useRef<() => void>(() => {});
+  autoSave.current = () => {
+    if (savedRef.current || check()) return;
+    savedRef.current = true;
+    api('/quotations', { method: 'POST', body: quotationBody(), keepalive: true }).catch(() => {});
+  };
+  useEffect(() => {
+    const onHide = () => autoSave.current();
+    window.addEventListener('pagehide', onHide);
+    return () => {
+      window.removeEventListener('pagehide', onHide);
+      autoSave.current();
+    };
+  }, []);
+
+  async function viewQuotation() {
     const problem = check();
     if (problem) return setError(problem);
 
@@ -277,7 +305,7 @@ export default function NewShipment() {
     setBusy(true);
     setError('');
     try {
-      await previewPdf({ ...body(), customerId, eta: eta || undefined }, win);
+      await previewPdf(quotationBody(), win, '/quotations/preview');
     } catch (err) {
       win?.close();
       setError((err as Error).message);
@@ -301,7 +329,7 @@ export default function NewShipment() {
   ];
 
   return (
-    <form onSubmit={(e) => { e.preventDefault(); submit(false); }}>
+    <form onSubmit={(e) => e.preventDefault()}>
       <h1>New shipment</h1>
       {error && <div className="error">{error}</div>}
       
@@ -625,14 +653,31 @@ export default function NewShipment() {
       {quote && <Breakdown q={quote} />}
 
       <div className="row" style={{ gap: 10 }}>
-        <button disabled={busy}>{busy ? 'Saving...' : 'Create shipment'}</button>
-        <button type="button" className="ghost" disabled={busy} onClick={viewInvoice}>
-          View invoice
+        <button type="button" className="ghost" disabled={busy} onClick={viewQuotation}>
+          View quotation
         </button>
-        <button type="button" disabled={busy} onClick={() => submit(true)}>
-          Generate invoice
+        <button type="button" className="ghost" disabled={busy} onClick={() => saveQuotation(false)}>
+          {busy ? 'Saving...' : 'Save draft'}
+        </button>
+        <button type="button" disabled={busy} onClick={() => saveQuotation(true)}>
+          Send quotation
         </button>
       </div>
+
+      {sendQuote && (
+        <ShareButton
+          hideButton
+          defaultOpen
+          docLabel="quotation"
+          path={`/quotations/${sendQuote.id}/pdf`}
+          invoiceNo={sendQuote.quoteNo}
+          company="Kiaan Freight Services"
+          customer={sendQuote.customer?.name}
+          total={sendQuote.total}
+          onShared={() => api(`/quotations/${sendQuote.id}/send`, { method: 'POST' }).catch(() => {})}
+          onClose={() => nav('/quotations')}
+        />
+      )}
     </form>
   );
 }

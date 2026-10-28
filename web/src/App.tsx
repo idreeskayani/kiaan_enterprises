@@ -7,6 +7,7 @@ import NewShipment from './pages/NewShipment';
 import ShipmentDetail from './pages/ShipmentDetail';
 import Users from './pages/Users';
 import Shipments from './pages/Shipment';
+import Quotations from './pages/Quotations';
 import { api, getToken, getUser, setToken, setUser } from './api';
 import ClearanceDetail from './pages/ClearanceDetail';
 import ClearanceDashboard from './pages/ClearanceDashboard';
@@ -65,6 +66,7 @@ function Layout() {
           <>
             <NavLink to="/" end>Dashboard</NavLink>
             <NavLink to="/shipments" end>Shipments</NavLink>
+            <NavLink to="/quotations">Quotations</NavLink>
             {freightStaff && <NavLink to="/shipments/new">New shipment</NavLink>}
             <NavLink to="/invoices">Invoices</NavLink>
             <NavLink to="/rates">Exchange rates</NavLink>
@@ -112,6 +114,7 @@ export default function App() {
           <Route path="clearance/invoices" element={<Only role="CLEARING_AGENT"><ClearanceInvoices /></Only>} />
 
           {/* freight side */}
+          <Route path="quotations" element={<Quotations />} />
           <Route path="shipments" element={<Shipments />} />
           <Route path="shipments/new" element={<NewShipment />} />
           <Route path="shipments/:id" element={<ShipmentDetail />} />
