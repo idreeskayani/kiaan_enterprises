@@ -1,246 +1,161 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { api, openPdf } from '../api';
+import { useParams } from 'react-router-dom';
+import { api, getUser, openPdf } from '../api';
+import { Badge, Breakdown, fmt } from '../components';
 import { ShareButton } from '../Share';
-import { Badge, fmt } from '../components';
+import { STATUSES, label } from '../constants';
 
-export default function Invoices() {
-  const [payment, setPayment] = useState('');
-  const [customer, setCustomer] = useState('');
-  const [customers, setCustomers] = useState<any[]>([]);
-  const [rows, setRows] = useState<any[]>([]);
+export default function ShipmentDetail() {
+  const { id } = useParams();
+  const [s, setS] = useState<any>(null);
+  const [quote, setQuote] = useState<any>(null);
+  const [status, setStatus] = useState('');
+  const [note, setNote] = useState('');
   const [error, setError] = useState('');
-
-  // payment popup
-  const [payFor, setPayFor] = useState<any>(null);
-  const [due, setDue] = useState('');
-  const [payError, setPayError] = useState('');
-  const [saving, setSaving] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   async function load() {
     try {
-      const qs = new URLSearchParams();
-      if (payment) qs.set('payment', payment);
-      if (customer.trim()) qs.set('customer', customer.trim());
-      const q = qs.toString();
-      setRows(await api(`/invoices${q ? `?${q}` : ''}`));
+      const data = await api(`/shipments/${id}`);
+      setS(data);
+      setStatus(data.status);
+      api(`/shipments/${id}/quote`).then(setQuote).catch(() => setQuote(null));
     } catch (e) {
       setError((e as Error).message);
     }
   }
 
-  // reload when a filter changes (customer search is debounced while typing)
   useEffect(() => {
-    const t = setTimeout(load, customer ? 300 : 0);
-    return () => clearTimeout(t);
+    load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [payment, customer]);
+  }, [id]);
 
-  // customer names for the search suggestions
-  useEffect(() => {
-    api('/customers').then(setCustomers).catch(() => setCustomers([]));
-  }, []);
-
-  // close the popup with Escape
-  useEffect(() => {
-    if (!payFor) return;
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && closePay();
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [payFor]);
-
-  async function act(fn: () => Promise<unknown>) {
+  async function run(fn: () => Promise<unknown>) {
+    setBusy(true);
     setError('');
     try {
       await fn();
       await load();
     } catch (e) {
       setError((e as Error).message);
-    }
-  }
-
-  function remove(r: any) {
-    if (!window.confirm(`Delete invoice ${r.invoiceNo}? This cannot be undone.`)) return;
-    act(() => api(`/invoices/${r.id}`, { method: 'DELETE' }));
-  }
-
-  function openPay(r: any) {
-    setPayFor(r);
-    setDue('');
-    setPayError('');
-  }
-
-  function closePay() {
-    if (saving) return;
-    setPayFor(null);
-  }
-
-  async function savePayment(body: { status: 'PAID' | 'PARTIAL'; dueAmount?: number }) {
-    setSaving(true);
-    setPayError('');
-    try {
-      await api(`/invoices/${payFor.id}/status`, { method: 'PATCH', body });
-      setPayFor(null);
-      await load();
-    } catch (e) {
-      setPayError((e as Error).message);
     } finally {
-      setSaving(false);
+      setBusy(false);
     }
   }
-
-  function saveDue() {
-    const amount = Number(due);
-    const total = Number(payFor.total);
-    if (!(amount > 0)) return setPayError('Enter the remaining dues amount');
-    if (amount >= total) {
-      return setPayError(`Remaining dues must be less than the invoice total (${fmt(total)})`);
-    }
-    savePayment({ status: 'PARTIAL', dueAmount: Math.round(amount * 100) / 100 });
-  }
+const isAgent = getUser()?.role === 'CLEARING_AGENT';
+  if (!s) return <>{error ? <div className="error">{error}</div> : <p>Loading...</p>}</>;
 
   return (
     <>
       <div className="row" style={{ marginBottom: 14 }}>
-        <h1 style={{ margin: 0, flex: 3 }}>Invoices</h1>
-        <div style={{ flex: 2 }}>
-          <input
-            type="search"
-            list="invoice-customers"
-            placeholder="Search by customer name"
-            value={customer}
-            onChange={(e) => setCustomer(e.target.value)}
-          />
-          <datalist id="invoice-customers">
-            {customers.map((c) => (
-              <option key={c.id} value={c.name} />
-            ))}
-          </datalist>
-        </div>
-        <div>
-          <select value={payment} onChange={(e) => setPayment(e.target.value)}>
-            <option value="">All invoices</option>
-            <option value="UNPAID">Unpaid</option>
-            <option value="PAID">Paid</option>
-          </select>
-        </div>
+        <h1 style={{ margin: 0, flex: 4 }}>{s.refNo}</h1>
+        <Badge status={s.status} />
       </div>
       {error && <div className="error">{error}</div>}
+
       <div className="card">
+        <div className="grid2">
+          <div>
+            <p><b>Customer:</b> {s.customer.name}</p>
+            <p><b>Mode:</b> {s.mode}</p>
+            <p><b>Route:</b> {[s.origin, ...(s.viaPoints ?? []), s.destination].join(' → ')}</p>
+          </div>
+          <div>
+            <p><b>Master no:</b> {s.blAwbNo ?? '-'}</p>
+            <p><b>House no:</b> {s.hawbNo ?? '-'}</p>
+            <p><b>Flight / vessel:</b> {s.flight ?? '-'}</p>
+            {s.exRate && <p><b>Ex. rate:</b> {Number(s.exRate)} ({s.currency})</p>}
+            <p><b>ETA:</b> {s.eta ? new Date(s.eta).toLocaleDateString() : '-'}</p>
+            <p><b>Goods value:</b> {fmt(s.goodsValue)}</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="card">
+        <h3>Packages</h3>
         <table>
           <thead>
-            <tr>
-              <th>Invoice</th>
-              <th>Shipment</th>
-              <th>Customer</th>
-              <th className="num">Total</th>
-              <th>Payment</th>
-              <th>Date</th>
-              <th></th>
-            </tr>
+            <tr><th>Dimensions (cm)</th><th className="num">Weight (kg)</th><th className="num">Qty</th></tr>
           </thead>
           <tbody>
-            {rows.map((r) => {
-              const paid = r.status === 'PAID';
-              const dueNow = Number(r.dueAmount ?? 0);
-              const partial = !paid && dueNow > 0;
-              return (
-                <tr key={r.id}>
-                  <td>{r.invoiceNo}</td>
-                  <td><Link to={`/shipments/${r.shipmentId}`}>{r.shipment.refNo}</Link></td>
-                  <td>{r.shipment.customer.name}</td>
-                  <td className="num">{fmt(r.total)}</td>
-                  <td>
-                    <Badge status={paid ? 'PAID' : partial ? 'PARTIAL' : 'UNPAID'} />
-                    {partial && <span className="due">Remaining dues: PKR {fmt(dueNow)}</span>}
-                  </td>
-                  <td>{new Date(r.issuedAt).toLocaleDateString()}</td>
-                  <td>
-                    <div className="row" style={{ gap: 6 }}>
-                      <button className="ghost small" onClick={() => act(() => openPdf(r.id))}>PDF</button>
-                      <ShareButton path={`/invoices/${r.id}/pdf`} invoiceNo={r.invoiceNo}
-                        company="Kiaan Freight Services" customer={r.shipment.customer.name} total={r.total} />
-                      {paid ? (
-                        <button
-                          className="small"
-                          onClick={() =>
-                            act(() =>
-                              api(`/invoices/${r.id}/status`, {
-                                method: 'PATCH',
-                                body: { status: 'UNPAID' },
-                              }),
-                            )
-                          }
-                        >
-                          Mark unpaid
-                        </button>
-                      ) : (
-                        <button className="small" onClick={() => openPay(r)}>
-                          {partial ? 'Update payment' : 'Mark paid'}
-                        </button>
-                      )}
-                      <button
-                        className="small"
-                        style={{ background: '#fee2e2', color: '#991b1b' }}
-                        title="Delete invoice"
-                        aria-label="Delete invoice"
-                        onClick={() => remove(r)}
-                      >
-                        <svg
-                          width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                          strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-                        >
-                          <polyline points="3 6 5 6 21 6" />
-                          <path d="M19 6l-1 14H6L5 6" />
-                          <path d="M10 11v6M14 11v6" />
-                          <path d="M9 6V4h6v2" />
-                        </svg>
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-            {rows.length === 0 && (
-              <tr><td colSpan={7} className="muted">No invoices found.</td></tr>
-            )}
+            {s.items.map((i: any) => (
+              <tr key={i.id}>
+                <td>{Number(i.lengthCm)} × {Number(i.widthCm)} × {Number(i.heightCm)}</td>
+                <td className="num">{Number(i.weightKg)}</td>
+                <td className="num">{i.qty}</td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
 
-      {payFor && (
-        <div className="modal-backdrop" onClick={closePay}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h3>Payment for {payFor.invoiceNo}</h3>
-            <p className="muted" style={{ margin: '0 0 14px' }}>
-              {payFor.shipment.customer.name} · Total PKR {fmt(payFor.total)}
-            </p>
-            {payError && <div className="error">{payError}</div>}
-
-            <button style={{ width: '100%' }} disabled={saving} onClick={() => savePayment({ status: 'PAID' })}>
-              Fully paid
-            </button>
-
-            <div className="or">— or, if not fully paid —</div>
-
-            <label>Remaining dues (PKR)</label>
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              placeholder="Amount still to be paid"
-              value={due}
-              onChange={(e) => setDue(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && saveDue()}
-              autoFocus
-            />
-            <div className="actions">
-              <button className="ghost" disabled={saving} onClick={closePay}>Cancel</button>
-              <button disabled={saving || !due} onClick={saveDue}>Save remaining dues</button>
-            </div>
+      {quote && <Breakdown q={quote} />}
+{!isAgent && (
+      <div className="card">
+        <h3>Update status</h3>
+        <div className="row">
+          <div>
+            <label>Status</label>
+            <select value={status} onChange={(e) => setStatus(e.target.value)}>
+              {STATUSES.map((x) => (
+                <option key={x} value={x}>{label(x)}</option>
+              ))}
+            </select>
           </div>
+          <div style={{ flex: 3 }}>
+            <label>Note (optional)</label>
+            <input value={note} onChange={(e) => setNote(e.target.value)} />
+          </div>
+          <button
+            disabled={busy || status === s.status}
+            onClick={() =>
+              run(async () => {
+                await api(`/shipments/${id}/status`, {
+                  method: 'PATCH',
+                  body: { status, note: note || undefined },
+                });
+                setNote('');
+              })
+            }
+          >
+            Update
+          </button>
         </div>
-      )}
+      </div>
+)}
+
+      <div className="card">
+        <h3>Invoice</h3>
+        {s.invoice ? (
+          <div className="row">
+            <div><b>{s.invoice.invoiceNo}</b></div>
+            <div><Badge status={s.invoice.status === 'PAID' ? 'PAID' : 'UNPAID'} /></div>
+            <div><b>{fmt(s.invoice.total)}</b></div>
+            <button className="ghost" onClick={() => run(() => openPdf(s.invoice.id))}>View PDF</button>
+            <ShareButton path={`/invoices/${s.invoice.id}/pdf`} invoiceNo={s.invoice.invoiceNo}
+              company="Kiaan Freight Services" customer={s.customer?.name} total={s.invoice.total} />
+          </div>
+        ) : (
+          <button disabled={busy} onClick={() => run(() => api(`/invoices/shipment/${id}`, { method: 'POST' }))}>
+            Generate invoice
+          </button>
+        )}
+      </div>
+
+      <div className="card">
+        <h3>Status history</h3>
+        <ul className="timeline">
+          {s.history.map((h: any) => (
+            <li key={h.id}>
+              <Badge status={h.status} />{' '}
+              <span className="muted">
+                {new Date(h.at).toLocaleString()} · {h.user?.email}
+              </span>
+              {h.note && <div>{h.note}</div>}
+            </li>
+          ))}
+        </ul>
+      </div>
     </>
   );
 }

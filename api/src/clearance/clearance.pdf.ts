@@ -123,7 +123,16 @@ export function buildClearancePdf(job: ClearancePdfJob): Promise<Buffer> {
       ? DUTY_KEYS.map((k, i) => ({ label: k.label, amount: dutyVals[i] ? split(dutyVals[i]).rs : '' })).filter((x) => x.amount)
       : [];
     const SUB_K = 0.92; // sub-line height as a share of a normal row
-    const totalNum = Number(job.total);
+    // customs duty (101) always equals the sum of its breakdown; the bill total follows
+    let totalAdj = Number(job.total);
+    if (showDuty) {
+      const r101 = rows.find((r) => r.code === '101');
+      const old = r101 ? Number(r101.amount) : 0;
+      if (r101) (r101 as any).amount = dutyTotal;
+      else rows.unshift({ ...CHARGE_CODES.find((c) => c.code === '101')!, amount: dutyTotal } as any);
+      totalAdj += dutyTotal - old;
+    }
+    const totalNum = totalAdj;
     const whole = Math.floor(totalNum + 1e-9);
     const paisa = Math.round((totalNum - whole) * 100);
     const words = `AMOUNT IN WORDS: -  PKR ${inWords(whole)}${paisa ? ` and ${inWords(paisa)} Paisa` : ''} Only`;
@@ -348,7 +357,7 @@ export function buildClearancePdf(job: ClearancePdfJob): Promise<Buffer> {
     }
 
     // ---- total
-    const tot = split(job.total);
+    const tot = split(totalAdj);
     ensure(RH);
     cell(xS, y, SNW, RH, '344', { align: 'center', size: 7.5 });
     cell(xP, y, PW, RH, 'Total', { bold: true, size: 9 });
