@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { ShipmentStatus } from '@prisma/client';
 import type { Mode, Prisma } from '@prisma/client';
 import { PricingService } from '../pricing/pricing.service.js';
@@ -111,7 +111,8 @@ export class ShipmentsService {
     return this.pricing.calculate(dto.items, rate, this.chargeOpts(dto));
   }
 
-  async create(dto: CreateShipmentDto, userId: string) {
+  // Normally BOOKED. A quotation that the client accepted creates a DRAFT first.
+  async create(dto: CreateShipmentDto, userId: string, status: ShipmentStatus = ShipmentStatus.BOOKED) {
     const rate = await this.resolveRate(dto);
     const opts = this.chargeOpts(dto);
     // checks the exchange rates and amounts before anything is saved
@@ -127,6 +128,7 @@ export class ShipmentsService {
         destination: dto.destination.trim(),
         viaPoints: (dto.viaPoints ?? []).map((p) => p.trim()).filter(Boolean),
         goodsValue: dto.goodsValue ?? 0,
+        status,
         blAwbNo: dto.blAwbNo,
         hawbNo: dto.hawbNo,
         flight: dto.flight,
@@ -145,7 +147,11 @@ export class ShipmentsService {
         details: this.cleanDetails(dto.details) as Prisma.InputJsonValue,
         items: { create: dto.items },
         history: {
-          create: { status: ShipmentStatus.BOOKED, note: 'Shipment booked', userId },
+          create: {
+            status,
+            note: status === ShipmentStatus.DRAFT ? 'Draft created from quotation' : 'Shipment booked',
+            userId,
+          },
         },
       },
       include: { items: true, customer: true },
@@ -225,8 +231,42 @@ export class ShipmentsService {
     );
   }
 
+  // Draft -> booked ("Create shipment").
+  async book(id: string, userId: string) {
+    const s = await this.findOne(id);
+    if (s.status !== ShipmentStatus.DRAFT) throw new ConflictException('This shipment is already booked');
+    const [shipment] = await this.prisma.$transaction([
+      this.prisma.shipment.update({ where: { id }, data: { status: ShipmentStatus.BOOKED } }),
+      this.prisma.statusHistory.create({
+        data: { shipmentId: id, status: ShipmentStatus.BOOKED, note: 'Shipment booked', userId },
+      }),
+    ]);
+    return shipment;
+  }
+
+  // A shipment with an invoice must have the invoice deleted first.
+  // A linked quotation goes back to SENT so it can be accepted again.
+  async remove(id: string) {
+    const s = await this.findOne(id);
+    if (s.invoice) throw new ConflictException('Delete this shipment\'s invoice first');
+    await this.prisma.$transaction([
+      this.prisma.quotation.updateMany({
+        where: { shipmentId: id },
+        data: { status: 'SENT', shipmentId: null },
+      }),
+      this.prisma.shipment.delete({ where: { id } }),
+    ]);
+    return { deleted: true };
+  }
+
   async updateStatus(id: string, status: ShipmentStatus, note: string | undefined, userId: string) {
-    await this.findOne(id);
+    const current = await this.findOne(id);
+    if (current.status === ShipmentStatus.DRAFT) {
+      throw new BadRequestException('Create (book) the shipment first');
+    }
+    if (status === ShipmentStatus.DRAFT) {
+      throw new BadRequestException('A booked shipment cannot go back to draft');
+    }
     const [shipment] = await this.prisma.$transaction([
       this.prisma.shipment.update({ where: { id }, data: { status } }),
       this.prisma.statusHistory.create({

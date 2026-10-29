@@ -1,4 +1,5 @@
 export const STATUSES = [
+  'DRAFT',
   'BOOKED',
   'IN_TRANSIT',
   'LANDED',

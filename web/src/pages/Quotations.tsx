@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api, getUser, openQuotationPdf } from '../api';
 import { Badge, fmt } from '../components';
+import { PencilIcon, TrashIcon } from '../Icons';
 import { ShareButton } from '../Share';
 
 const QUOTE_STATUSES = ['DRAFT', 'SENT', 'ACCEPTED', 'REJECTED', 'EXPIRED'];
@@ -54,9 +55,10 @@ export default function Quotations() {
     }
   }
 
-  function remove(id: string, no: string) {
-    if (!window.confirm(`Delete quotation ${no}?`)) return;
-    act(id, () => api(`/quotations/${id}`, { method: 'DELETE' }));
+  function remove(q: any) {
+    const note = q.shipment ? ` The shipment ${q.shipment.refNo} booked from it will stay.` : '';
+    if (!window.confirm(`Delete quotation ${q.quoteNo}?${note}`)) return;
+    act(q.id, () => api(`/quotations/${q.id}`, { method: 'DELETE' }));
   }
 
   function reject(id: string) {
@@ -98,7 +100,7 @@ export default function Quotations() {
               const open = q.status === 'DRAFT' || q.status === 'SENT';
               return (
                 <tr key={q.id}>
-                  <td><a href="#" onClick={(e) => { e.preventDefault(); view(q.id); }}>{q.quoteNo}</a></td>
+                  <td><Link to={`/quotations/${q.id}`}>{q.quoteNo}</Link></td>
                   <td>{q.customer?.name}</td>
                   <td>{[q.payload?.origin, q.payload?.destination].join(' → ')}</td>
                   <td className="num">{fmt(q.total)}</td>
@@ -119,8 +121,14 @@ export default function Quotations() {
                           onShared={() => q.status === 'DRAFT' && api(`/quotations/${q.id}/send`, { method: 'POST' }).then(load)}
                         />
                       )}
-                      {canAct && q.status !== 'ACCEPTED' && (
-                        <button className="ghost small" disabled={busy === q.id} onClick={() => remove(q.id, q.quoteNo)}>Delete</button>
+                      {canAct && open && (
+                        <button className="ghost small" title="Edit quotation" aria-label="Edit quotation"
+                          onClick={() => nav(`/quotations/${q.id}/edit`)}><PencilIcon size={14} /></button>
+                      )}
+                      {canAct && (
+                        <button className="small" style={{ background: '#fee2e2', color: '#991b1b' }}
+                          title="Delete quotation" aria-label="Delete quotation"
+                          disabled={busy === q.id} onClick={() => remove(q)}><TrashIcon size={14} /></button>
                       )}
                       {canAct && open && (
                         <button className="small" disabled={busy === q.id} onClick={() => accept(q.id)}>Accept &amp; book</button>

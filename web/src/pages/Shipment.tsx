@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { api } from '../api';
+import { api, getUser } from '../api';
+import { TrashIcon } from '../Icons';
 import { Badge } from '../components';
 import { STATUSES, label } from '../constants';
 
@@ -9,12 +10,26 @@ export default function Shipments() {
   const status = params.get('status') ?? '';
   const [rows, setRows] = useState<any[]>([]);
   const [error, setError] = useState('');
+  const canDelete = getUser()?.role === 'OPERATOR';
 
-  useEffect(() => {
+  function load() {
     api(`/shipments${status ? `?status=${status}` : ''}`)
       .then(setRows)
       .catch((e) => setError(e.message));
-  }, [status]);
+  }
+
+  useEffect(load, [status]);
+
+  async function remove(s: any) {
+    if (!window.confirm(`Delete shipment ${s.refNo}? This cannot be undone.`)) return;
+    setError('');
+    try {
+      await api(`/shipments/${s.id}`, { method: 'DELETE' });
+      load();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
 
   return (
     <>
@@ -38,7 +53,7 @@ export default function Shipments() {
         <table>
           <thead>
             <tr>
-              <th>Ref</th><th>Customer</th><th>Mode</th><th>Route</th><th>Status</th><th>Created</th>
+              <th>Ref</th><th>Customer</th><th>Mode</th><th>Route</th><th>Status</th><th>Created</th><th></th>
             </tr>
           </thead>
           <tbody>
@@ -50,10 +65,23 @@ export default function Shipments() {
                 <td>{[s.origin, ...(s.viaPoints ?? []), s.destination].join(' → ')}</td>
                 <td><Badge status={s.status} /></td>
                 <td>{new Date(s.createdAt).toLocaleDateString()}</td>
+                <td>
+                  {canDelete && (
+                    <button
+                      className="small"
+                      style={{ background: '#fee2e2', color: '#991b1b' }}
+                      title="Delete shipment"
+                      aria-label="Delete shipment"
+                      onClick={() => remove(s)}
+                    >
+                      <TrashIcon size={14} />
+                    </button>
+                  )}
+                </td>
               </tr>
             ))}
             {rows.length === 0 && (
-              <tr><td colSpan={6} className="muted">No shipments found.</td></tr>
+              <tr><td colSpan={7} className="muted">No shipments found.</td></tr>
             )}
           </tbody>
         </table>

@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { api, previewPdf } from '../api';
 import { ShareButton } from '../Share';
-import { Breakdown, fmt} from '../components';
+import { Breakdown} from '../components';
 
 type Item = { lengthCm: string; widthCm: string; heightCm: string; weightKg: string; qty: string };
 type Extra = { label: string; amount: string; currency: string; exRate: string };
@@ -21,8 +21,17 @@ const NAMES: Record<
   ROAD: { master: 'Waybill No.', house: 'Ref No.', carrier: 'Vehicle', line: 'Transporter', freight: 'Road Freight' },
 };
 
+// One page for both: /shipments/new (new quotation) and /quotations/:id/edit (change a saved one).
 export default function NewShipment() {
+  const { id } = useParams();
+  return <QuotationForm key={id ?? 'new'} editId={id} />;
+}
+
+function QuotationForm({ editId }: { editId?: string }) {
   const nav = useNavigate();
+  const [editQuote, setEditQuote] = useState<any>(null);
+  // what the saved quotation had, so today's rates do not overwrite it
+  const loaded = useRef<{ mode: string; origin: string; destination: string; currency: string; exRate: string } | null>(null);
   const [customers, setCustomers] = useState<any[]>([]);
   const [rates, setRates] = useState<any[]>([]);
   const [past, setPast] = useState<any[]>([]);
@@ -82,9 +91,69 @@ export default function NewShipment() {
 
   // picking a currency fills in its saved exchange rate
   useEffect(() => {
-    if (currency !== 'PKR') setExRate(fx[currency] ? String(fx[currency]) : '');
+    if (currency === 'PKR') return;
+    if (loaded.current && loaded.current.currency === currency) {
+      setExRate(loaded.current.exRate); // editing: keep the rate the quotation was made with
+      return;
+    }
+    setExRate(fx[currency] ? String(fx[currency]) : '');
   }, [currency, fx]);
 
+
+  useEffect(() => {
+    if (!editId) return;
+    api(`/quotations/${editId}`)
+      .then((q) => {
+        if (q.status !== 'DRAFT' && q.status !== 'SENT') {
+          setError('Only a draft or sent quotation can be edited');
+          return;
+        }
+        const p = q.payload ?? {};
+        const t = (v: unknown) => (v === undefined || v === null || v === 0 ? '' : String(v));
+        const keep = (v: unknown) => (v === undefined || v === null ? '' : String(v));
+        loaded.current = {
+          mode: p.mode, origin: p.origin, destination: p.destination,
+          currency: p.currency, exRate: t(p.exRate),
+        };
+        setCustomerSel(p.customerId);
+        setMode(p.mode);
+        setOrigin(p.origin);
+        setVia(p.viaPoints ?? []);
+        setDestination(p.destination);
+        setFreightLabel(p.freightLabel ?? '');
+        setCurrency(p.currency);
+        setExRate(t(p.exRate));
+        setRatePerUnit(t(p.rate?.ratePerUnit));
+        setMinCharge(t(p.rate?.minCharge));
+        setFuelPct(t(p.rate?.fuelPct));
+        setHandling(t(p.rate?.handling));
+        setVolDivisor(t(p.rate?.volDivisor));
+        setFreightOverride(keep(p.freightOverride));
+        setDoCharges(keep(p.doCharges));
+        setExtras(
+          (p.extraCharges ?? []).map((e: any) => ({
+            label: e.label, amount: String(e.amount), currency: e.currency, exRate: t(e.exRate),
+          })),
+        );
+        setSaveRate(false);
+        setGoodsValue(t(p.goodsValue));
+        setBlAwbNo(p.blAwbNo ?? '');
+        setHawbNo(p.hawbNo ?? '');
+        setFlight(p.flight ?? '');
+        setEta(p.eta ? String(p.eta).slice(0, 10) : '');
+        const d = { direction: 'IMPORT', ...(p.details ?? {}) };
+        setDet(d);
+        setShowMore(Object.keys(d).some((k) => k !== 'direction'));
+        setItems(
+          (p.items ?? []).map((i: any) => ({
+            lengthCm: String(i.lengthCm), widthCm: String(i.widthCm), heightCm: String(i.heightCm),
+            weightKg: String(i.weightKg), qty: String(i.qty),
+          })),
+        );
+        setEditQuote(q);
+      })
+      .catch((err) => setError(err.message));
+  }, [editId]);
 
   const customerId = customerSel && customerSel !== NEW ? customerSel : '';
   const names = NAMES[mode] ?? NAMES.AIR;
@@ -112,13 +181,15 @@ export default function NewShipment() {
   const matchedId = matched?.id ?? '';
 
   useEffect(() => {
-    if (matched) {
+    const l = loaded.current;
+    const sameAsSaved = !!l && l.mode === mode && same(l.origin, origin) && same(l.destination, destination);
+    if (matched && !sameAsSaved) {
       setRatePerUnit(String(Number(matched.ratePerUnit)));
       setMinCharge(String(Number(matched.minCharge)));
       setFuelPct(String(Number(matched.fuelPct)));
       setHandling(String(Number(matched.handling)));
     }
-    setSaveRate(!matched);
+    setSaveRate(sameAsSaved ? false : !matched);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [matchedId]);
 
@@ -258,7 +329,7 @@ export default function NewShipment() {
   }
 
   // ---- quotation: saved as a draft, marked "sent" only when it is actually sent
-  const savedRef = useRef(false); // true once this form has produced a quotation
+  const savedRef = useRef(!!editId); // true once this form has produced a quotation (always, when editing)
   const [sendQuote, setSendQuote] = useState<any>(null);
 
   const quotationBody = () => ({ ...body(), customerId, eta: eta || undefined });
@@ -270,10 +341,12 @@ export default function NewShipment() {
     setError('');
     try {
       if (saveRate && num(ratePerUnit) > 0) await saveRateCard();
-      const q = await api('/quotations', { method: 'POST', body: quotationBody() });
+      const q = editId
+        ? await api(`/quotations/${editId}`, { method: 'PUT', body: quotationBody() })
+        : await api('/quotations', { method: 'POST', body: quotationBody() });
       savedRef.current = true;
       if (send) setSendQuote(q); // opens the send popup (WhatsApp / Gmail / download)
-      else nav('/quotations');
+      else nav(editId ? `/quotations/${editId}` : '/quotations');
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -330,7 +403,7 @@ export default function NewShipment() {
 
   return (
     <form onSubmit={(e) => e.preventDefault()}>
-      <h1>New shipment</h1>
+      <h1>{editId ? `Edit quotation${editQuote ? ` ${editQuote.quoteNo}` : ''}` : 'New shipment'}</h1>
       {error && <div className="error">{error}</div>}
       
       <div className="card">
@@ -657,7 +730,7 @@ export default function NewShipment() {
           View quotation
         </button>
         <button type="button" className="ghost" disabled={busy} onClick={() => saveQuotation(false)}>
-          {busy ? 'Saving...' : 'Save draft'}
+          {busy ? 'Saving...' : editId ? 'Save changes' : 'Save draft'}
         </button>
         <button type="button" disabled={busy} onClick={() => saveQuotation(true)}>
           Send quotation

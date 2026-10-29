@@ -30,6 +30,7 @@ enum ShipmentStatus {
   ON_HOLD
   CUSTOMS_EXAM
   CANCELLED
+  DRAFT
 }
 
 enum InvoiceStatus {

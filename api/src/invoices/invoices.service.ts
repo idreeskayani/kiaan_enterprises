@@ -111,7 +111,9 @@ export class InvoicesService {
     const paymentWhere =
       payment === 'PAID'
         ? { status: InvoiceStatus.PAID }
-        : payment === 'UNPAID'
+        : payment === 'DRAFT'
+          ? { status: InvoiceStatus.DRAFT }
+          : payment === 'UNPAID'
           ? { status: { not: InvoiceStatus.PAID } }
           : {};
     const name = customer?.trim();
@@ -132,6 +134,13 @@ export class InvoicesService {
     });
     if (!invoice) throw new NotFoundException('Invoice not found');
     return invoice;
+  }
+
+  // Invoices start as DRAFT. Sending one makes it ISSUED (paid ones stay paid).
+  async issue(id: string) {
+    const invoice = await this.findOne(id);
+    if (invoice.status !== InvoiceStatus.DRAFT) return invoice;
+    return this.prisma.invoice.update({ where: { id }, data: { status: InvoiceStatus.ISSUED } });
   }
 
   // Payment status only. This never touches the shipment's status.

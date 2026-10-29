@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
+import { TrashIcon } from '../Icons';
 import { api, getUser, openPdf } from '../api';
 import { Badge, Breakdown, fmt } from '../components';
 import { ShareButton } from '../Share';
@@ -7,6 +8,7 @@ import { STATUSES, label } from '../constants';
 
 export default function ShipmentDetail() {
   const { id } = useParams();
+  const nav = useNavigate();
   const [s, setS] = useState<any>(null);
   const [quote, setQuote] = useState<any>(null);
   const [status, setStatus] = useState('');
@@ -53,6 +55,38 @@ const isAgent = getUser()?.role === 'CLEARING_AGENT';
       </div>
       {error && <div className="error">{error}</div>}
 
+      {s.status === 'DRAFT' && !isAgent && (
+        <div className="card">
+          <h3>Draft shipment</h3>
+          <p className="muted">
+            This shipment was created from an accepted quotation and is not booked yet. Check the
+            details below, then create the shipment to book it.
+          </p>
+          <div className="row" style={{ gap: 10 }}>
+            <button disabled={busy} onClick={() => run(() => api(`/shipments/${id}/book`, { method: 'POST' }))}>
+              Create shipment
+            </button>
+            {getUser()?.role === 'OPERATOR' && (
+              <button
+                className="ghost"
+                disabled={busy}
+                onClick={async () => {
+                  if (!window.confirm(`Delete draft shipment ${s.refNo}?`)) return;
+                  try {
+                    await api(`/shipments/${id}`, { method: 'DELETE' });
+                    nav('/shipments');
+                  } catch (e) {
+                    setError((e as Error).message);
+                  }
+                }}
+              >
+                <TrashIcon size={14} /> Delete draft
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="card">
         <div className="grid2">
           <div>
@@ -90,14 +124,14 @@ const isAgent = getUser()?.role === 'CLEARING_AGENT';
       </div>
 
       {quote && <Breakdown q={quote} />}
-{!isAgent && (
+{!isAgent && s.status !== 'DRAFT' && (
       <div className="card">
         <h3>Update status</h3>
         <div className="row">
           <div>
             <label>Status</label>
             <select value={status} onChange={(e) => setStatus(e.target.value)}>
-              {STATUSES.map((x) => (
+              {STATUSES.filter((x) => x !== 'DRAFT').map((x) => (
                 <option key={x} value={x}>{label(x)}</option>
               ))}
             </select>
@@ -129,16 +163,25 @@ const isAgent = getUser()?.role === 'CLEARING_AGENT';
         {s.invoice ? (
           <div className="row">
             <div><b>{s.invoice.invoiceNo}</b></div>
-            <div><Badge status={s.invoice.status === 'PAID' ? 'PAID' : 'UNPAID'} /></div>
+            <div><Badge status={s.invoice.status === 'PAID' ? 'PAID' : s.invoice.status === 'DRAFT' ? 'DRAFT' : 'UNPAID'} /></div>
             <div><b>{fmt(s.invoice.total)}</b></div>
             <button className="ghost" onClick={() => run(() => openPdf(s.invoice.id))}>View PDF</button>
             <ShareButton path={`/invoices/${s.invoice.id}/pdf`} invoiceNo={s.invoice.invoiceNo}
-              company="Kiaan Freight Services" customer={s.customer?.name} total={s.invoice.total} />
+              company="Kiaan Freight Services" customer={s.customer?.name} total={s.invoice.total}
+              onShared={() => s.invoice.status === 'DRAFT' && api(`/invoices/${s.invoice.id}/issue`, { method: 'POST' }).then(load)} />
           </div>
         ) : (
-          <button disabled={busy} onClick={() => run(() => api(`/invoices/shipment/${id}`, { method: 'POST' }))}>
-            Generate invoice
-          </button>
+          <div className="row" style={{ gap: 10 }}>
+            <button
+              disabled={busy || s.status !== 'DELIVERED'}
+              onClick={() => run(() => api(`/invoices/shipment/${id}`, { method: 'POST' }))}
+            >
+              Generate invoice
+            </button>
+            {s.status !== 'DELIVERED' && (
+              <span className="muted">Available once the shipment is marked Delivered.</span>
+            )}
+          </div>
         )}
       </div>
 

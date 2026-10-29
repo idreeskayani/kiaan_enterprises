@@ -62,6 +62,11 @@ export class InvoicesController {
     return this.invoices.findOne(id);
   }
 
+  @Post(':id/issue')
+  issue(@Param('id', ParseUUIDPipe) id: string) {
+    return this.invoices.issue(id);
+  }
+
   @Patch(':id/status')
   @Roles(Role.ACCOUNTANT)
   updateStatus(

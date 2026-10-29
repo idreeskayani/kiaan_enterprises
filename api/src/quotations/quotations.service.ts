@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, QuotationStatus } from '@prisma/client';
+import { Prisma, QuotationStatus, ShipmentStatus } from '@prisma/client';
 import { buildInvoicePdf } from '../invoices/invoice-pdf.js';
 import type { PdfInvoice } from '../invoices/invoice-pdf.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -100,7 +100,7 @@ export class QuotationsService {
     });
   }
 
-  // Client agreed: book the shipment from the saved quotation (draft or sent).
+  // Client agreed: creates a DRAFT shipment from the quotation. It is booked from the shipment page.
   async accept(id: string, userId: string) {
     const quotation = await this.findOne(id);
     if (quotation.status === QuotationStatus.EXPIRED) {
@@ -122,6 +122,7 @@ export class QuotationsService {
       const shipment = await this.shipments.create(
         quotation.payload as unknown as CreateShipmentDto,
         userId,
+        ShipmentStatus.DRAFT, // booked later with "Create shipment" on the shipment page
       );
       await this.prisma.quotation.update({
         where: { id },
@@ -145,14 +146,41 @@ export class QuotationsService {
     });
   }
 
-  // An accepted quotation has a booked shipment, so it stays as the record of it.
+  // Any quotation can be deleted. A shipment booked from it is not touched.
   async remove(id: string) {
-    const quotation = await this.findOne(id);
-    if (quotation.status === QuotationStatus.ACCEPTED) {
-      throw new ConflictException('An accepted quotation cannot be deleted');
-    }
+    await this.findOne(id);
     await this.prisma.quotation.delete({ where: { id } });
     return { deleted: true };
+  }
+
+  // Edit a draft or sent quotation. Accepted ones already created a shipment.
+  async update(id: string, dto: CreateQuotationDto) {
+    const quotation = await this.findOne(id);
+    if (quotation.status !== QuotationStatus.DRAFT && quotation.status !== QuotationStatus.SENT) {
+      throw new ConflictException(`A ${quotation.status.toLowerCase()} quotation cannot be edited`);
+    }
+    const customer = await this.prisma.customer.findUnique({ where: { id: dto.customerId } });
+    if (!customer) throw new NotFoundException('Customer not found');
+
+    const q = await this.shipments.quote(dto);
+    const { validDays, ...payload } = dto;
+
+    return this.prisma.quotation.update({
+      where: { id },
+      data: {
+        customerId: dto.customerId,
+        payload: JSON.parse(JSON.stringify(payload)) as Prisma.InputJsonValue,
+        total: q.total,
+        ...(validDays ? { validUntil: addDays(validDays) } : {}),
+      },
+      include: { customer: true },
+    });
+  }
+
+  // Charge breakdown for the detail screen.
+  async breakdown(id: string) {
+    const quotation = await this.findOne(id);
+    return this.shipments.quote(quotation.payload as unknown as CreateShipmentDto);
   }
 
   // ---- PDF (same letterhead layout as the invoice, titled QUOTATION)

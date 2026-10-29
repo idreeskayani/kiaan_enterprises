@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseUUIDPipe,
@@ -52,6 +53,18 @@ export class ShipmentsController {
   @Get(':id/quote')
   quoteFor(@Param('id', ParseUUIDPipe) id: string) {
     return this.shipments.quoteForShipment(id);
+  }
+
+  @Post(':id/book')
+  @Roles(Role.OPERATOR)
+  book(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
+    return this.shipments.book(id, req.user.id);
+  }
+
+  @Delete(':id')
+  @Roles(Role.OPERATOR)
+  remove(@Param('id', ParseUUIDPipe) id: string) {
+    return this.shipments.remove(id);
   }
 
   @Patch(':id/status')

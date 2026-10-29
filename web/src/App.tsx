@@ -8,6 +8,7 @@ import ShipmentDetail from './pages/ShipmentDetail';
 import Users from './pages/Users';
 import Shipments from './pages/Shipment';
 import Quotations from './pages/Quotations';
+import QuotationDetail from './pages/QuotationDetails';
 import { api, getToken, getUser, setToken, setUser } from './api';
 import ClearanceDetail from './pages/ClearanceDetail';
 import ClearanceDashboard from './pages/ClearanceDashboard';
@@ -115,6 +116,8 @@ export default function App() {
 
           {/* freight side */}
           <Route path="quotations" element={<Quotations />} />
+          <Route path="quotations/:id" element={<QuotationDetail />} />
+          <Route path="quotations/:id/edit" element={<NewShipment />} />
           <Route path="shipments" element={<Shipments />} />
           <Route path="shipments/new" element={<NewShipment />} />
           <Route path="shipments/:id" element={<ShipmentDetail />} />

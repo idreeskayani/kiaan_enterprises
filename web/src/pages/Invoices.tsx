@@ -120,6 +120,7 @@ export default function Invoices() {
         <div>
           <select value={payment} onChange={(e) => setPayment(e.target.value)}>
             <option value="">All invoices</option>
+            <option value="DRAFT">Draft</option>
             <option value="UNPAID">Unpaid</option>
             <option value="PAID">Paid</option>
           </select>
@@ -143,6 +144,7 @@ export default function Invoices() {
             {rows.map((r) => {
               const paid = r.status === 'PAID';
               const dueNow = Number(r.dueAmount ?? 0);
+              const draft = r.status === 'DRAFT';
               const partial = !paid && dueNow > 0;
               return (
                 <tr key={r.id}>
@@ -151,7 +153,7 @@ export default function Invoices() {
                   <td>{r.shipment.customer.name}</td>
                   <td className="num">{fmt(r.total)}</td>
                   <td>
-                    <Badge status={paid ? 'PAID' : partial ? 'PARTIAL' : 'UNPAID'} />
+                    <Badge status={paid ? 'PAID' : draft ? 'DRAFT' : partial ? 'PARTIAL' : 'UNPAID'} />
                     {partial && <span className="due">Remaining dues: PKR {fmt(dueNow)}</span>}
                   </td>
                   <td>{new Date(r.issuedAt).toLocaleDateString()}</td>
@@ -159,7 +161,8 @@ export default function Invoices() {
                     <div className="row" style={{ gap: 6 }}>
                       <button className="ghost small" onClick={() => act(() => openPdf(r.id))}>PDF</button>
                       <ShareButton path={`/invoices/${r.id}/pdf`} invoiceNo={r.invoiceNo}
-                        company="Kiaan Freight Services" customer={r.shipment.customer.name} total={r.total} />
+                        company="Kiaan Freight Services" customer={r.shipment.customer.name} total={r.total}
+                        onShared={() => draft && api(`/invoices/${r.id}/issue`, { method: 'POST' }).then(load)} />
                       {paid ? (
                         <button
                           className="small"

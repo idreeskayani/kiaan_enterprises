@@ -6,6 +6,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Put,
   Query,
   Req,
   StreamableFile,
@@ -56,9 +57,20 @@ export class QuotationsController {
     return pdfFile(buffer, filename);
   }
 
+  @Get(':id/quote')
+  breakdown(@Param('id', ParseUUIDPipe) id: string) {
+    return this.quotations.breakdown(id);
+  }
+
   @Get(':id')
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.quotations.findOne(id);
+  }
+
+  @Put(':id')
+  @Roles(Role.OPERATOR)
+  update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: CreateQuotationDto) {
+    return this.quotations.update(id, dto);
   }
 
   @Post(':id/send')
