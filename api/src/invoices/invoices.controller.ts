@@ -74,7 +74,7 @@ export class InvoicesController {
   }
 
   @Patch(':id/status')
-  @Roles(Role.ACCOUNTANT)
+  @Roles(Role.OPERATOR, Role.ACCOUNTANT)
   updateStatus(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateInvoiceStatusDto,
