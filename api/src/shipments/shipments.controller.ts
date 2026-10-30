@@ -55,6 +55,13 @@ export class ShipmentsController {
     return this.shipments.quoteForShipment(id);
   }
 
+  // Saved as a DRAFT shipment: not booked until "Book shipment" is pressed.
+  @Post('draft')
+  @Roles(Role.OPERATOR)
+  createDraft(@Body() dto: CreateShipmentDto, @Req() req: any) {
+    return this.shipments.create(dto, req.user.id, ShipmentStatus.DRAFT, 'Draft saved');
+  }
+
   @Post(':id/book')
   @Roles(Role.OPERATOR)
   book(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {

@@ -35,8 +35,14 @@ export class InvoicesController {
     });
   }
 
+  // An invoice on its own (no shipment, no quotation).
+  @Post()
+  createDirect(@Body() dto: CreateShipmentDto) {
+    return this.invoices.createDirect(dto);
+  }
+
+  // The invoice of an existing shipment. Operators and accountants can create it.
   @Post('shipment/:shipmentId')
-  @Roles(Role.ACCOUNTANT)
   create(@Param('shipmentId', ParseUUIDPipe) shipmentId: string) {
     return this.invoices.createForShipment(shipmentId);
   }
@@ -77,7 +83,7 @@ export class InvoicesController {
   }
 
   @Delete(':id')
-  @Roles(Role.ACCOUNTANT)
+  @Roles(Role.OPERATOR, Role.ACCOUNTANT)
   remove(@Param('id', ParseUUIDPipe) id: string) {
     return this.invoices.remove(id);
   }

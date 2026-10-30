@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { api, openPdf } from '../api';
+import { api, getUser, openPdf } from '../api';
 import { Badge, fmt } from '../components';
 import { ShareButton } from '../Share';
 
 export default function Invoices() {
+  const freightStaff = getUser()?.role === 'OPERATOR';
   const [payment, setPayment] = useState('');
   const [customer, setCustomer] = useState('');
   const [customers, setCustomers] = useState<any[]>([]);
@@ -103,6 +104,7 @@ export default function Invoices() {
     <>
       <div className="row" style={{ marginBottom: 14 }}>
         <h1 style={{ margin: 0, flex: 3 }}>Invoices</h1>
+        {freightStaff && <Link to="/shipments/new?type=invoice"><button>+ New invoice</button></Link>}
         <div style={{ flex: 2 }}>
           <input
             type="search"
@@ -149,8 +151,8 @@ export default function Invoices() {
               return (
                 <tr key={r.id}>
                   <td>{r.invoiceNo}</td>
-                  <td><Link to={`/shipments/${r.shipmentId}`}>{r.shipment.refNo}</Link></td>
-                  <td>{r.shipment.customer.name}</td>
+                  <td>{r.shipment ? <Link to={`/shipments/${r.shipmentId}`}>{r.shipment.refNo}</Link> : ''}</td>
+                  <td>{r.customerName}</td>
                   <td className="num">{fmt(r.total)}</td>
                   <td>
                     <Badge status={paid ? 'PAID' : draft ? 'DRAFT' : partial ? 'PARTIAL' : 'UNPAID'} />
@@ -161,7 +163,7 @@ export default function Invoices() {
                     <div className="row" style={{ gap: 6 }}>
                       <button className="ghost small" onClick={() => act(() => openPdf(r.id))}>PDF</button>
                       <ShareButton path={`/invoices/${r.id}/pdf`} invoiceNo={r.invoiceNo}
-                        company="Kiaan Freight Services" customer={r.shipment.customer.name} total={r.total}
+                        company="Kiaan Freight Services" customer={r.customerName} total={r.total}
                         onShared={() => draft && api(`/invoices/${r.id}/issue`, { method: 'POST' }).then(load)} />
                       {paid ? (
                         <button
@@ -216,7 +218,7 @@ export default function Invoices() {
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h3>Payment for {payFor.invoiceNo}</h3>
             <p className="muted" style={{ margin: '0 0 14px' }}>
-              {payFor.shipment.customer.name} · Total PKR {fmt(payFor.total)}
+              {payFor.customerName} · Total PKR {fmt(payFor.total)}
             </p>
             {payError && <div className="error">{payError}</div>}
 

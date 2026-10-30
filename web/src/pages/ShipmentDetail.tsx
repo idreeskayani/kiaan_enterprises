@@ -60,11 +60,11 @@ const isAgent = getUser()?.role === 'CLEARING_AGENT';
           <h3>Draft shipment</h3>
           <p className="muted">
             This shipment was created from an accepted quotation and is not booked yet. Check the
-            details below, then create the shipment to book it.
+            details below, then book the shipment.
           </p>
           <div className="row" style={{ gap: 10 }}>
             <button disabled={busy} onClick={() => run(() => api(`/shipments/${id}/book`, { method: 'POST' }))}>
-              Create shipment
+              Book shipment
             </button>
             {getUser()?.role === 'OPERATOR' && (
               <button
@@ -171,17 +171,9 @@ const isAgent = getUser()?.role === 'CLEARING_AGENT';
               onShared={() => s.invoice.status === 'DRAFT' && api(`/invoices/${s.invoice.id}/issue`, { method: 'POST' }).then(load)} />
           </div>
         ) : (
-          <div className="row" style={{ gap: 10 }}>
-            <button
-              disabled={busy || s.status !== 'DELIVERED'}
-              onClick={() => run(() => api(`/invoices/shipment/${id}`, { method: 'POST' }))}
-            >
-              Generate invoice
-            </button>
-            {s.status !== 'DELIVERED' && (
-              <span className="muted">Available once the shipment is marked Delivered.</span>
-            )}
-          </div>
+          <button disabled={busy} onClick={() => run(() => api(`/invoices/shipment/${id}`, { method: 'POST' }))}>
+            Generate invoice
+          </button>
         )}
       </div>
 

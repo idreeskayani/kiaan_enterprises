@@ -112,7 +112,12 @@ export class ShipmentsService {
   }
 
   // Normally BOOKED. A quotation that the client accepted creates a DRAFT first.
-  async create(dto: CreateShipmentDto, userId: string, status: ShipmentStatus = ShipmentStatus.BOOKED) {
+  async create(
+    dto: CreateShipmentDto,
+    userId: string,
+    status: ShipmentStatus = ShipmentStatus.BOOKED,
+    draftNote = 'Draft created from quotation',
+  ) {
     const rate = await this.resolveRate(dto);
     const opts = this.chargeOpts(dto);
     // checks the exchange rates and amounts before anything is saved
@@ -149,7 +154,7 @@ export class ShipmentsService {
         history: {
           create: {
             status,
-            note: status === ShipmentStatus.DRAFT ? 'Draft created from quotation' : 'Shipment booked',
+            note: status === ShipmentStatus.DRAFT ? draftNote : 'Shipment booked',
             userId,
           },
         },

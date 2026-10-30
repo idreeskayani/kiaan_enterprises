@@ -84,7 +84,7 @@ export default function Quotations() {
             ))}
           </select>
         </div>
-        {canAct && <Link to="/shipments/new"><button>+ New quotation</button></Link>}
+        {canAct && <Link to="/shipments/new?type=quotation"><button>+ New quotation</button></Link>}
       </div>
       {error && <div className="error">{error}</div>}
       <div className="card">

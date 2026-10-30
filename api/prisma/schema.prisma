@@ -58,6 +58,7 @@ model Customer {
   taxNumber String?
   shipments Shipment[]
   quotations Quotation[]
+  invoices   Invoice[]
 }
 
 model Shipment {
@@ -139,8 +140,13 @@ model HsCode {
 model Invoice {
   id         String        @id @default(uuid())
   invoiceNo  String        @unique
-  shipmentId String        @unique
-  shipment   Shipment      @relation(fields: [shipmentId], references: [id])
+  // Set when the invoice belongs to a shipment. An invoice made on its own has none.
+  shipmentId String?       @unique
+  shipment   Shipment?     @relation(fields: [shipmentId], references: [id], onDelete: Restrict)
+  // Standalone invoices keep their own customer and details (route, packages ...).
+  customerId String?
+  customer   Customer?     @relation(fields: [customerId], references: [id])
+  details    Json?
   clearanceJob     ClearanceJob?
   status     InvoiceStatus @default(DRAFT)
   total      Decimal       @db.Decimal(14, 2)

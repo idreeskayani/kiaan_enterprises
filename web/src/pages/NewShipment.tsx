@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, previewPdf } from '../api';
 import { ShareButton } from '../Share';
 import { Breakdown} from '../components';
@@ -27,8 +27,22 @@ export default function NewShipment() {
   return <QuotationForm key={id ?? 'new'} editId={id} />;
 }
 
+type Kind = 'quotation' | 'shipment' | 'invoice';
+const KINDS: { key: Kind; label: string }[] = [
+  { key: 'quotation', label: 'Quotation' },
+  { key: 'shipment', label: 'Shipment' },
+  { key: 'invoice', label: 'Invoice' },
+];
+
 function QuotationForm({ editId }: { editId?: string }) {
   const nav = useNavigate();
+  // what is being created: /shipments/new?type=invoice opens straight on that one
+  const [sp] = useSearchParams();
+  const [kind, setKind] = useState<Kind>(() => {
+    const t = sp.get('type');
+    return t === 'shipment' || t === 'invoice' ? t : 'quotation';
+  });
+  const [sendInvoice, setSendInvoice] = useState<any>(null);
   const [editQuote, setEditQuote] = useState<any>(null);
   // what the saved quotation had, so today's rates do not overwrite it
   const loaded = useRef<{ mode: string; origin: string; destination: string; currency: string; exRate: string } | null>(null);
@@ -354,10 +368,66 @@ function QuotationForm({ editId }: { editId?: string }) {
     }
   }
 
+  // ---- shipment and invoice: each one creates only itself (no quotation, no link between them)
+  async function saveShipment(book: boolean) {
+    const problem = check();
+    if (problem) return setError(problem);
+    setBusy(true);
+    setError('');
+    try {
+      if (saveRate && num(ratePerUnit) > 0) await saveRateCard();
+      const s = await api(book ? '/shipments' : '/shipments/draft', {
+        method: 'POST',
+        body: quotationBody(),
+      });
+      savedRef.current = true;
+      nav(`/shipments/${s.id}`);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // The invoice is saved as a draft. Sharing it (WhatsApp / Gmail / download) marks it issued.
+  async function saveInvoice(share: boolean) {
+    const problem = check();
+    if (problem) return setError(problem);
+    setBusy(true);
+    setError('');
+    try {
+      if (saveRate && num(ratePerUnit) > 0) await saveRateCard();
+      const inv = await api('/invoices', { method: 'POST', body: quotationBody() });
+      savedRef.current = true;
+      if (share) setSendInvoice(inv);
+      else nav('/invoices');
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function viewInvoice() {
+    const problem = check();
+    if (problem) return setError(problem);
+    const win = window.open('', '_blank');
+    setBusy(true);
+    setError('');
+    try {
+      await previewPdf(quotationBody(), win);
+    } catch (err) {
+      win?.close();
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   // Leaving the page without sending: keep a complete form as a draft quotation.
   const autoSave = useRef<() => void>(() => {});
   autoSave.current = () => {
-    if (savedRef.current || check()) return;
+    if (kind !== 'quotation' || savedRef.current || check()) return;
     savedRef.current = true;
     api('/quotations', { method: 'POST', body: quotationBody(), keepalive: true }).catch(() => {});
   };
@@ -403,7 +473,25 @@ function QuotationForm({ editId }: { editId?: string }) {
 
   return (
     <form onSubmit={(e) => e.preventDefault()}>
-      <h1>{editId ? `Edit quotation${editQuote ? ` ${editQuote.quoteNo}` : ''}` : 'New shipment'}</h1>
+      <h1>
+        {editId
+          ? `Edit quotation${editQuote ? ` ${editQuote.quoteNo}` : ''}`
+          : `New ${kind}`}
+      </h1>
+      {!editId && (
+        <div className="row" style={{ gap: 8, marginBottom: 14 }}>
+          {KINDS.map((k) => (
+            <button
+              key={k.key}
+              type="button"
+              className={kind === k.key ? '' : 'ghost'}
+              onClick={() => setKind(k.key)}
+            >
+              {k.label}
+            </button>
+          ))}
+        </div>
+      )}
       {error && <div className="error">{error}</div>}
       
       <div className="card">
@@ -725,17 +813,75 @@ function QuotationForm({ editId }: { editId?: string }) {
 
       {quote && <Breakdown q={quote} />}
 
-      <div className="row" style={{ gap: 10 }}>
-        <button type="button" className="ghost" disabled={busy} onClick={viewQuotation}>
-          View quotation
-        </button>
-        <button type="button" className="ghost" disabled={busy} onClick={() => saveQuotation(false)}>
-          {busy ? 'Saving...' : editId ? 'Save changes' : 'Save draft'}
-        </button>
-        <button type="button" disabled={busy} onClick={() => saveQuotation(true)}>
-          Send quotation
-        </button>
+      <div className="card">
+        {editId ? (
+          <div className="row" style={{ gap: 10 }}>
+            <button type="button" className="ghost" disabled={busy} onClick={viewQuotation}>
+              View quotation
+            </button>
+            <button type="button" className="ghost" disabled={busy} onClick={() => saveQuotation(false)}>
+              {busy ? 'Saving...' : 'Save changes'}
+            </button>
+            <button type="button" disabled={busy} onClick={() => saveQuotation(true)}>
+              Send quotation
+            </button>
+          </div>
+        ) : (
+          <div className="row" style={{ gap: 10, alignItems: 'center' }}>
+            {kind === 'quotation' && (
+              <>
+                <button type="button" className="ghost" disabled={busy} onClick={viewQuotation}>
+                  View quotation
+                </button>
+                <button type="button" className="ghost" disabled={busy} onClick={() => saveQuotation(false)}>
+                  {busy ? 'Saving...' : 'Save draft'}
+                </button>
+                <button type="button" disabled={busy} onClick={() => saveQuotation(true)}>
+                  Send quotation
+                </button>
+              </>
+            )}
+            {kind === 'shipment' && (
+              <>
+                <button type="button" className="ghost" disabled={busy} onClick={() => saveShipment(false)}>
+                  {busy ? 'Saving...' : 'Save draft'}
+                </button>
+                <button type="button" disabled={busy} onClick={() => saveShipment(true)}>
+                  Book shipment
+                </button>
+              </>
+            )}
+            {kind === 'invoice' && (
+              <>
+                <button type="button" className="ghost" disabled={busy} onClick={viewInvoice}>
+                  View invoice
+                </button>
+                <button type="button" className="ghost" disabled={busy} onClick={() => saveInvoice(false)}>
+                  {busy ? 'Saving...' : 'Save draft'}
+                </button>
+                <button type="button" disabled={busy} onClick={() => saveInvoice(true)}>
+                  Share invoice
+                </button>
+              </>
+            )}
+          </div>
+        )}
       </div>
+
+      {sendInvoice && (
+        <ShareButton
+          hideButton
+          defaultOpen
+          docLabel="invoice"
+          path={`/invoices/${sendInvoice.id}/pdf`}
+          invoiceNo={sendInvoice.invoiceNo}
+          company="Kiaan Freight Services"
+          customer={sendInvoice.customer?.name}
+          total={sendInvoice.total}
+          onShared={() => api(`/invoices/${sendInvoice.id}/issue`, { method: 'POST' }).catch(() => {})}
+          onClose={() => nav('/invoices')}
+        />
+      )}
 
       {sendQuote && (
         <ShareButton

@@ -46,7 +46,7 @@ export default function Shipments() {
             ))}
           </select>
         </div>
-        <Link to="/shipments/new"><button>+ New shipment</button></Link>
+        <Link to="/shipments/new?type=shipment"><button>+ New shipment</button></Link>
       </div>
       {error && <div className="error">{error}</div>}
       <div className="card">

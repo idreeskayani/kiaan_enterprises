@@ -68,7 +68,7 @@ function Layout() {
             <NavLink to="/" end>Dashboard</NavLink>
             <NavLink to="/shipments" end>Shipments</NavLink>
             <NavLink to="/quotations">Quotations</NavLink>
-            {freightStaff && <NavLink to="/shipments/new">New shipment</NavLink>}
+            {freightStaff && <NavLink to="/shipments/new">Create new</NavLink>}
             <NavLink to="/invoices">Invoices</NavLink>
             <NavLink to="/rates">Exchange rates</NavLink>
           </>

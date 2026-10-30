@@ -4,11 +4,12 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { InvoiceStatus, ShipmentStatus } from '@prisma/client';
+import { InvoiceStatus, Prisma, ShipmentStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { CreateShipmentDto } from '../shipments/dto.js';
 import { ShipmentsService } from '../shipments/shipments.service.js';
 import { buildInvoicePdf } from './invoice-pdf.js';
+import type { PdfInvoice } from './invoice-pdf.js';
 
 @Injectable()
 export class InvoicesService {
@@ -35,10 +36,6 @@ export class InvoicesService {
     if (shipment.status === ShipmentStatus.CANCELLED) {
       throw new ConflictException('Cannot invoice a cancelled shipment');
     }
-    // invoice goes out only after delivery
-    if (shipment.status !== ShipmentStatus.DELIVERED) {
-      throw new ConflictException('The shipment must be delivered before it can be invoiced');
-    }
 
     const q = await this.shipments.quoteForShipment(shipmentId);
     const invoiceNo = await this.nextInvoiceNo();
@@ -62,6 +59,64 @@ export class InvoicesService {
     });
   }
 
+  // The shipment-shaped block the PDF prints (route, packages, customer ...).
+  private pdfShipment(
+    dto: CreateShipmentDto,
+    customer: { name: string; address: string | null; phone: string | null; taxNumber: string | null },
+    exRate: number | null,
+    refNo: string,
+  ): PdfInvoice['shipment'] {
+    return {
+      refNo,
+      mode: dto.mode,
+      origin: dto.origin.trim(),
+      destination: dto.destination.trim(),
+      viaPoints: (dto.viaPoints ?? []).map((p) => p.trim()).filter(Boolean),
+      blAwbNo: dto.blAwbNo ?? null,
+      hawbNo: dto.hawbNo ?? null,
+      flight: dto.flight ?? null,
+      eta: dto.eta ?? null,
+      volDivisor: dto.rate?.volDivisor ?? null,
+      exRate,
+      details: dto.details ?? null,
+      items: dto.items,
+      customer: {
+        name: customer.name,
+        address: customer.address,
+        phone: customer.phone,
+        taxNumber: customer.taxNumber,
+      },
+    };
+  }
+
+  // An invoice on its own: no quotation, no shipment. Nothing else is created.
+  async createDirect(dto: CreateShipmentDto) {
+    const customer = await this.prisma.customer.findUnique({ where: { id: dto.customerId } });
+    if (!customer) throw new NotFoundException('Customer not found');
+
+    const q = await this.shipments.quote(dto);
+    const invoiceNo = await this.nextInvoiceNo();
+
+    return this.prisma.invoice.create({
+      data: {
+        invoiceNo,
+        customerId: dto.customerId,
+        details: JSON.parse(JSON.stringify(dto)) as Prisma.InputJsonValue,
+        total: q.total,
+        lines: {
+          create: q.lines.map((l) => ({
+            label: l.label,
+            amount: l.pkr,
+            currency: l.currency,
+            foreignAmount: l.foreign,
+            exRate: l.rate,
+          })),
+        },
+      },
+      include: { lines: true, customer: { select: { name: true } } },
+    });
+  }
+
   // Builds a PDF from the form data. Nothing is saved.
   async preview(dto: CreateShipmentDto) {
     const customer = await this.prisma.customer.findUnique({ where: { id: dto.customerId } });
@@ -69,7 +124,7 @@ export class InvoicesService {
 
     const q = await this.shipments.quote(dto);
 
-    const inv = {
+    const inv: PdfInvoice = {
       invoiceNo: 'PREVIEW',
       status: 'PREVIEW',
       issuedAt: new Date(),
@@ -81,27 +136,7 @@ export class InvoicesService {
         foreignAmount: l.foreign,
         exRate: l.rate,
       })),
-      shipment: {
-        refNo: 'Not saved',
-        mode: dto.mode,
-        origin: dto.origin.trim(),
-        destination: dto.destination.trim(),
-        viaPoints: (dto.viaPoints ?? []).map((p) => p.trim()).filter(Boolean),
-        blAwbNo: dto.blAwbNo ?? null,
-        hawbNo: dto.hawbNo ?? null,
-        flight: dto.flight ?? null,
-        eta: dto.eta ?? null,
-        volDivisor: dto.rate?.volDivisor ?? null,
-        exRate: q.exRate,
-        details: dto.details ?? null,
-        items: dto.items,
-        customer: {
-          name: customer.name,
-          address: customer.address,
-          phone: customer.phone,
-          taxNumber: customer.taxNumber,
-        },
-      },
+      shipment: this.pdfShipment(dto, customer, q.exRate, 'Not saved'),
     };
     const buffer = await buildInvoicePdf(inv);
     return { buffer, filename: 'invoice-preview.pdf' };
@@ -117,20 +152,32 @@ export class InvoicesService {
           ? { status: { not: InvoiceStatus.PAID } }
           : {};
     const name = customer?.trim();
+    const like = { contains: name, mode: 'insensitive' as const };
     const customerWhere = name
-      ? { shipment: { customer: { name: { contains: name, mode: 'insensitive' as const } } } }
+      ? { OR: [{ customer: { name: like } }, { shipment: { customer: { name: like } } }] }
       : {};
-    return this.prisma.invoice.findMany({
-      where: { ...paymentWhere, ...customerWhere },
-      include: { shipment: { select: { refNo: true, customer: { select: { name: true } } } } },
-      orderBy: { issuedAt: 'desc' },
-    });
+    return this.prisma.invoice
+      .findMany({
+        where: { ...paymentWhere, ...customerWhere },
+        include: {
+          customer: { select: { name: true } },
+          shipment: { select: { refNo: true, customer: { select: { name: true } } } },
+        },
+        orderBy: { issuedAt: 'desc' },
+      })
+      .then((rows) =>
+        rows.map((r) => ({ ...r, customerName: r.customer?.name ?? r.shipment?.customer.name ?? '' })),
+      );
   }
 
   async findOne(id: string) {
     const invoice = await this.prisma.invoice.findUnique({
       where: { id },
-      include: { lines: true, shipment: { include: { customer: true, items: true } } },
+      include: {
+        lines: true,
+        customer: true,
+        shipment: { include: { customer: true, items: true } },
+      },
     });
     if (!invoice) throw new NotFoundException('Invoice not found');
     return invoice;
@@ -180,7 +227,18 @@ export class InvoicesService {
 
   async pdf(id: string) {
     const invoice = await this.findOne(id);
-    const buffer = await buildInvoicePdf(invoice);
+    if (invoice.shipment) {
+      const buffer = await buildInvoicePdf({ ...invoice, shipment: invoice.shipment });
+      return { buffer, filename: `${invoice.invoiceNo}.pdf` };
+    }
+    // standalone invoice: print from the details saved with it
+    const dto = invoice.details as unknown as CreateShipmentDto;
+    if (!invoice.customer || !dto) throw new NotFoundException('Invoice details are missing');
+    const q = await this.shipments.quote(dto);
+    const buffer = await buildInvoicePdf({
+      ...invoice,
+      shipment: this.pdfShipment(dto, invoice.customer, q.exRate, ''),
+    });
     return { buffer, filename: `${invoice.invoiceNo}.pdf` };
   }
 }
