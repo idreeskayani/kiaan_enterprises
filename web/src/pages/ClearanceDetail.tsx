@@ -50,6 +50,7 @@ export default function ClearanceDetail() {
   const [status, setStatus] = useState('');
   const [note, setNote] = useState('');
   const [error, setError] = useState('');
+  const [shareOpen, setShareOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
   async function load() {
@@ -99,9 +100,9 @@ export default function ClearanceDetail() {
 
   const dutyTotalNow = () => DUTY_KEYS.reduce((t, d) => t + (Number(duties[d.key]) || 0), 0);
 
-  const save = () =>
-    run(() =>
-      api(`/clearance/${id}`, {
+  // saves what is typed on the page (used by Save, View, Save draft and Share)
+  const patch = () =>
+    api(`/clearance/${id}`, {
         method: 'PATCH',
         body: {
           customerName: cName.trim(),
@@ -121,12 +122,44 @@ export default function ClearanceDetail() {
               c.code === '101' && dutyTotalNow() > 0 ? dutyTotalNow() : Number(charges[c.code]) || 0,
           })).filter((c) => c.amount > 0),
         },
-      }),
-    );
+      });
+
+  const save = () => run(patch);
+
+  // View invoice: save the typed details first, then open the PDF (a preview until it is saved as a draft)
+  function viewInvoice() {
+    const win = window.open('', '_blank');
+    run(async () => {
+      try {
+        await patch();
+        await openClearancePdf(job.id, win);
+      } catch (e) {
+        win?.close();
+        throw e;
+      }
+    });
+  }
+
+  function saveDraft() {
+    run(async () => {
+      await patch();
+      await api(`/clearance/${id}/draft`, { method: 'POST' });
+    });
+  }
+
+  // Share invoice: saves it as a draft and opens the share popup. Sharing issues it.
+  function shareInvoice() {
+    run(async () => {
+      await patch();
+      await api(`/clearance/${id}/draft`, { method: 'POST' });
+      setShareOpen(true);
+    });
+  }
 
   if (!job) return <>{error ? <div className="error">{error}</div> : <p>Loading...</p>}</>;
 
-  const locked = !!job.invoiceNo;
+  const isDraft = job.payment === 'DRAFT';
+  const locked = !!job.invoiceNo && !isDraft;
   const edit = canWork && !locked;
   const setD = (k: string, v: string) => {
     const next = { ...det, [k]: v };
@@ -362,10 +395,12 @@ export default function ClearanceDetail() {
           <div className="row">
             <div><b>{job.invoiceNo}</b></div>
             <div><b>{fmt(job.total)}</b></div>
+            {isDraft && <div><Badge status="DRAFT" /></div>}
             <button className="ghost" style={{ flex: 'none' }}
               onClick={() => run(() => openClearancePdf(job.id))}>View</button>
             <ShareButton className="ghost" path={`/clearance/${job.id}/pdf`} invoiceNo={job.invoiceNo}
-              company="TNI Enterprises" customer={job.customerName} total={job.total} />
+              company="TNI Enterprises" customer={job.customerName} total={job.total}
+              onShared={() => isDraft && api(`/clearance/${id}/issue`, { method: 'POST' }).then(load)} />
             {canWork && (
               <button className="ghost" style={{ flex: 'none' }} disabled={busy}
                 onClick={() => {
@@ -376,13 +411,28 @@ export default function ClearanceDetail() {
             )}
           </div>
         ) : canWork ? (
-          <button disabled={busy} onClick={() => run(() => api(`/clearance/${id}/invoice`, { method: 'POST' }))}>
-            Generate invoice
-          </button>
+          <div className="row" style={{ gap: 10 }}>
+            <button className="ghost" style={{ flex: 'none' }} disabled={busy} onClick={viewInvoice}>
+              View invoice
+            </button>
+            <button className="ghost" style={{ flex: 'none' }} disabled={busy} onClick={saveDraft}>
+              Save draft
+            </button>
+            <button style={{ flex: 'none' }} disabled={busy} onClick={shareInvoice}>
+              Share invoice
+            </button>
+          </div>
         ) : (
           <p className="muted">No invoice yet.</p>
         )}
       </div>
+
+      {shareOpen && job.invoiceNo && (
+        <ShareButton hideButton defaultOpen path={`/clearance/${job.id}/pdf`} invoiceNo={job.invoiceNo}
+          company="TNI Enterprises" customer={job.customerName} total={job.total}
+          onShared={() => api(`/clearance/${id}/issue`, { method: 'POST' }).then(load)}
+          onClose={() => { setShareOpen(false); load(); }} />
+      )}
 
       <div className="card">
         <h3>Clearance history</h3>

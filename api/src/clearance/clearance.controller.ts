@@ -87,6 +87,18 @@ export class ClearanceController {
     return this.clearance.generateInvoice(id);
   }
 
+  @Post(':id/draft')
+  @Roles(Role.CLEARING_AGENT)
+  saveDraft(@Param('id', ParseUUIDPipe) id: string) {
+    return this.clearance.saveDraft(id);
+  }
+
+  @Post(':id/issue')
+  @Roles(Role.CLEARING_AGENT)
+  issue(@Param('id', ParseUUIDPipe) id: string) {
+    return this.clearance.issue(id);
+  }
+
   @Delete(':id/invoice')
   @Roles(Role.CLEARING_AGENT)
   removeInvoice(@Param('id', ParseUUIDPipe) id: string) {

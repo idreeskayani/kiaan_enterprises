@@ -20,8 +20,8 @@ export default function ClearanceDashboard() {
       .then(([s, all, inv]) => {
         setStats(s);
         // invoices that were started but not generated yet
-        setDrafts(all.filter((j: any) => !j.invoiceNo && j.status !== 'CANCELLED').slice(0, 10));
-        setUnpaid(inv.filter((j: any) => j.payment !== 'PAID').slice(0, 8));
+        setDrafts(all.filter((j: any) => (!j.invoiceNo || j.payment === 'DRAFT') && j.status !== 'CANCELLED').slice(0, 10));
+        setUnpaid(inv.filter((j: any) => j.payment !== 'PAID' && j.payment !== 'DRAFT').slice(0, 8));
       })
       .catch((e) => setError(e.message));
   }, []);
@@ -44,6 +44,7 @@ export default function ClearanceDashboard() {
       {stats && (
         <div className="grid" style={{ marginBottom: 14 }}>
           {stat('Invoices issued', stats.invoices.issued, '/clearance/invoices')}
+          {stat('Draft', stats.invoices.drafts ?? 0, '/clearance/invoices?payment=DRAFT')}
           {stat('Paid', stats.invoices.paid, '/clearance/invoices?payment=PAID')}
           {stat('Unpaid', stats.invoices.unpaid, '/clearance/invoices?payment=UNPAID')}
           {stat('Remaining dues', stats.invoices.partial, '/clearance/invoices?payment=PARTIAL')}

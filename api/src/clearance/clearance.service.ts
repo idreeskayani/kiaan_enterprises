@@ -134,7 +134,7 @@ export class ClearanceService {
 
   async update(id: string, dto: UpdateClearanceDto) {
     const job = await this.findOne(id);
-    if (job.invoiceNo) {
+    if (job.invoiceNo && job.payment !== ClearancePayment.DRAFT) {
       throw new ConflictException('Invoice already generated. Delete the invoice before editing.');
     }
     const av = dto.assessableValue ?? Number(job.assessableValue);
@@ -181,9 +181,9 @@ export class ClearanceService {
     return this.findOne(id);
   }
 
-  async generateInvoice(id: string) {
+  // Gives the job an invoice number. DRAFT stays editable; UNPAID means it is issued.
+  private async makeInvoice(id: string, payment: ClearancePayment) {
     const job = await this.findOne(id);
-    if (job.invoiceNo) throw new ConflictException('Invoice already exists for this job');
     if (job.status === ClearanceStatus.CANCELLED) {
       throw new ConflictException('Cannot invoice a cancelled job');
     }
@@ -197,9 +197,34 @@ export class ClearanceService {
       data: {
         invoiceNo: await this.nextInvoiceNo(),
         invoicedAt: new Date(),
-        payment: ClearancePayment.UNPAID,
+        payment,
         dueAmount: 0,
       },
+    });
+    return this.findOne(id);
+  }
+
+  async generateInvoice(id: string) {
+    const job = await this.findOne(id);
+    if (job.invoiceNo) throw new ConflictException('Invoice already exists for this job');
+    return this.makeInvoice(id, ClearancePayment.UNPAID);
+  }
+
+  // Save as draft: the invoice exists (and is listed) but is not issued yet.
+  async saveDraft(id: string) {
+    const job = await this.findOne(id);
+    if (job.invoiceNo) return job;
+    return this.makeInvoice(id, ClearancePayment.DRAFT);
+  }
+
+  // Sharing the invoice issues it. Creates it first if it does not exist yet.
+  async issue(id: string) {
+    const job = await this.findOne(id);
+    if (!job.invoiceNo) return this.makeInvoice(id, ClearancePayment.UNPAID);
+    if (job.payment !== ClearancePayment.DRAFT) return job;
+    await this.prisma.clearanceJob.update({
+      where: { id },
+      data: { payment: ClearancePayment.UNPAID, dueAmount: 0 },
     });
     return this.findOne(id);
   }
@@ -242,10 +267,11 @@ export class ClearanceService {
 
   async pdf(id: string) {
     const job = await this.findOne(id);
-    if (!job.invoiceNo) throw new BadRequestException('Generate the invoice first');
+    // before the invoice exists this is a preview of the saved details
+    const invoiceNo = job.invoiceNo ?? 'DRAFT';
     const buffer = await buildClearancePdf({
       jobNo: job.jobNo,
-      invoiceNo: job.invoiceNo,
+      invoiceNo,
       payment: job.payment,
       invoicedAt: job.invoicedAt ?? new Date(),
       total: job.total,
@@ -261,7 +287,7 @@ export class ClearanceService {
       duties: job.duties,
       lines: (job.lines as unknown as Line[]).map((l) => ({ code: l.code, amount: l.amount })),
     });
-    return { buffer, filename: `${job.invoiceNo}.pdf` };
+    return { buffer, filename: `${job.invoiceNo ?? `${job.jobNo}-draft`}.pdf` };
   }
 
   async stats() {
@@ -272,7 +298,9 @@ export class ClearanceService {
     for (const j of all) byStatus[j.status] = (byStatus[j.status] ?? 0) + 1;
 
     const live = all.filter((j) => j.status !== ClearanceStatus.CANCELLED);
-    const invoiced = live.filter((j) => j.payment !== ClearancePayment.UNINVOICED);
+    const invoiced = live.filter(
+      (j) => j.payment !== ClearancePayment.UNINVOICED && j.payment !== ClearancePayment.DRAFT,
+    );
     const count = (p: ClearancePayment) => invoiced.filter((j) => j.payment === p).length;
     const outstanding = invoiced.reduce(
       (s, j) =>
@@ -296,6 +324,7 @@ export class ClearanceService {
       byStatus,
       invoices: {
         notInvoiced: live.length - invoiced.length,
+        drafts: live.filter((j) => j.payment === ClearancePayment.DRAFT).length,
         issued: invoiced.length,
         paid: count(ClearancePayment.PAID),
         unpaid: count(ClearancePayment.UNPAID),

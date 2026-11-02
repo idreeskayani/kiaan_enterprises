@@ -22,7 +22,7 @@ export const CLEARANCE_STATUSES = [
   'CANCELLED',
 ];
 
-export const PAYMENT_STATES = ['UNINVOICED', 'UNPAID', 'PARTIAL', 'PAID'];
+export const PAYMENT_STATES = ['UNINVOICED', 'DRAFT', 'UNPAID', 'PARTIAL', 'PAID'];
 
 export const INVOICE_STATUSES = ['DRAFT', 'ISSUED', 'PAID', 'CANCELLED'];
 

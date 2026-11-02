@@ -199,6 +199,7 @@ enum ClearancePayment {
   UNPAID
   PARTIAL
   PAID
+  DRAFT
 }
 
 model ClearanceJob {

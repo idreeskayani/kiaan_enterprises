@@ -129,6 +129,7 @@ export default function ClearanceInvoices() {
         <div>
           <select value={payment} onChange={(e) => setPayment(e.target.value)}>
             <option value="">All invoices</option>
+            <option value="DRAFT">Draft</option>
             <option value="UNPAID">Unpaid</option>
             <option value="PARTIAL">Remaining dues</option>
             <option value="PAID">Paid</option>
@@ -170,7 +171,8 @@ export default function ClearanceInvoices() {
                     <div className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
                       <button type="button" className="ghost small" onClick={() => view(r.id)}>View</button>
                       <ShareButton path={`/clearance/${r.id}/pdf`} invoiceNo={r.invoiceNo}
-                        company="TNI Enterprises" customer={r.customerName} total={r.total} />
+                        company="TNI Enterprises" customer={r.customerName} total={r.total}
+                        onShared={() => r.payment === 'DRAFT' && api(`/clearance/${r.id}/issue`, { method: 'POST' }).then(() => setTick((t) => t + 1))} />
                       {canPay && (paid ? (
                         <button type="button" className="small" onClick={() => markUnpaid(r)}>Mark unpaid</button>
                       ) : (
