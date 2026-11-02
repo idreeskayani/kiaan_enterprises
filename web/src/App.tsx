@@ -44,15 +44,6 @@ function Layout() {
 
   return (
     <div className="app">
-      {user.impersonating && (
-        <button
-          type="button"
-          style={{ position: 'fixed', top: 12, right: 16, zIndex: 60, boxShadow: '0 2px 8px rgba(0,0,0,.25)' }}
-          onClick={returnToAdmin}
-        >
-          Return to admin
-        </button>
-      )}
       <aside>
         <h2>{agent ? 'TNI Enterprises' : 'Kiaan Cargo'}</h2>
         {admin ? (
@@ -86,6 +77,23 @@ function Layout() {
         </button>
       </aside>
       <main>
+        {user.impersonating && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 12,
+              marginBottom: 16,
+              padding: '8px 12px',
+              background: '#eef2ff',
+              borderRadius: 8,
+            }}
+          >
+            <span className="muted">Working as {user.email}</span>
+            <button type="button" onClick={returnToAdmin}>Return to admin</button>
+          </div>
+        )}
         <Outlet />
       </main>
     </div>

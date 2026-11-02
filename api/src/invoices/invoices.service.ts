@@ -183,6 +183,30 @@ export class InvoicesService {
     return invoice;
   }
 
+  // Dashboard figures. Drafts and cancelled invoices are not counted as invoiced.
+  async summary() {
+    const rows = await this.prisma.invoice.findMany({
+      where: { status: { in: [InvoiceStatus.ISSUED, InvoiceStatus.PAID] } },
+      select: { status: true, total: true, dueAmount: true },
+    });
+    let invoiced = 0;
+    let outstanding = 0;
+    for (const r of rows) {
+      const total = Number(r.total);
+      invoiced += total;
+      if (r.status === InvoiceStatus.ISSUED) {
+        const due = Number(r.dueAmount);
+        outstanding += due > 0 ? due : total; // partly paid: what is left; unpaid: everything
+      }
+    }
+    const round = (n: number) => Math.round(n * 100) / 100;
+    return {
+      invoiced: round(invoiced),
+      collected: round(invoiced - outstanding),
+      outstanding: round(outstanding),
+    };
+  }
+
   // Invoices start as DRAFT. Sending one makes it ISSUED (paid ones stay paid).
   async issue(id: string) {
     const invoice = await this.findOne(id);

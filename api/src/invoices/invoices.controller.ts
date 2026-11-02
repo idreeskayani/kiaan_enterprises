@@ -49,6 +49,11 @@ export class InvoicesController {
 
   // ?payment=PAID or ?payment=UNPAID (leave empty for all)
   // ?customer=<name> shows only that customer's invoices (partial, case-insensitive match)
+  @Get('summary')
+  summary() {
+    return this.invoices.summary();
+  }
+
   @Get()
   list(@Query('payment') payment?: string, @Query('customer') customer?: string) {
     return this.invoices.list(payment, customer);
