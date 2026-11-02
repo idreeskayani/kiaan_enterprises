@@ -1,8 +1,10 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { AppService } from './app.service.js';
+import { AppController } from './app.controller.js';
 import { AuthModule } from './auth/auth.module.js';
 import { CatalogModule } from './catalog/catalog.module.js';
-import { ExchangeRatesModule} from './exchange-rates/exchange-rates.modules.js';
+import { ExchangeRatesModule } from './exchange-rates/exchange-rates.modules.js';
 import { InvoicesModule } from './invoices/invoices.module.js';
 import { PrismaModule } from './prisma/prisma.module.js';
 import { ShipmentsModule } from './shipments/shipments.module.js';
@@ -20,5 +22,7 @@ import { QuotationsModule } from './quotations/quotations.module.js';
     ClearanceModule,
     QuotationsModule,
   ],
+  controllers: [AppController],
+  providers: [AppService],
 })
-export class AppModule {}
+export class AppModule { }
