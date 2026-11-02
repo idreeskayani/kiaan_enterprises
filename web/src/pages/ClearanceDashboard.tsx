@@ -7,7 +7,7 @@ export default function ClearanceDashboard() {
   const nav = useNavigate();
   const canWork = getUser()?.role === 'CLEARING_AGENT';
   const [stats, setStats] = useState<any>(null);
-  const [drafts, setDrafts] = useState<any[]>([]);
+  // const [drafts, setDrafts] = useState<any[]>([]);
   const [unpaid, setUnpaid] = useState<any[]>([]);
   const [error, setError] = useState('');
 
@@ -17,10 +17,10 @@ export default function ClearanceDashboard() {
       api('/clearance'),
       api('/clearance?scope=invoiced'),
     ])
-      .then(([s, all, inv]) => {
+      .then(([s, inv]) => {
         setStats(s);
         // invoices that were started but not generated yet
-        setDrafts(all.filter((j: any) => (!j.invoiceNo || j.payment === 'DRAFT') && j.status !== 'CANCELLED').slice(0, 10));
+        // setDrafts(all.filter((j: any) => (!j.invoiceNo || j.payment === 'DRAFT') && j.status !== 'CANCELLED').slice(0, 10));
         setUnpaid(inv.filter((j: any) => j.payment !== 'PAID' && j.payment !== 'DRAFT').slice(0, 8));
       })
       .catch((e) => setError(e.message));
