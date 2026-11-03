@@ -21,7 +21,7 @@ export default function ClearanceDashboard() {
         setStats(s);
         // invoices that were started but not generated yet
         // setDrafts(all.filter((j: any) => (!j.invoiceNo || j.payment === 'DRAFT') && j.status !== 'CANCELLED').slice(0, 10));
-        setUnpaid(inv.filter((j: any) => j.payment !== 'PAID' && j.payment !== 'DRAFT').slice(0, 8));
+        setUnpaid(inv.filter((j: any) => j.payment === 'UNPAID' || j.payment === 'PARTIAL').slice(0, 8));
       })
       .catch((e) => setError(e.message));
   }, []);

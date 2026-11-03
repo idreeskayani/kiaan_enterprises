@@ -3,7 +3,8 @@ import { label } from './constants';
 export const fmt = (n: number | string) =>
   Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-export function Badge({ status }: { status: string }) {
+export function Badge({ status }: { status?: string | null }) {
+  if (!status) return null; // e.g. a job with no invoice has no payment status
   return <span className={`badge ${status}`}>{label(status)}</span>;
 }
 

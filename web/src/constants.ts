@@ -22,9 +22,9 @@ export const CLEARANCE_STATUSES = [
   'CANCELLED',
 ];
 
-export const PAYMENT_STATES = ['UNINVOICED', 'DRAFT', 'UNPAID', 'PARTIAL', 'PAID'];
+export const PAYMENT_STATES = ['DRAFT', 'UNPAID', 'PARTIAL', 'PAID'];
 
 export const INVOICE_STATUSES = ['DRAFT', 'ISSUED', 'PAID', 'CANCELLED'];
 
-export const label = (s: string) =>
-  s.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+export const label = (s?: string | null) =>
+  (s ?? '').replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
