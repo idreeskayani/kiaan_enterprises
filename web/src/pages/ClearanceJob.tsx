@@ -118,7 +118,7 @@ export default function ClearanceJobs() {
                 <td><Badge status={r.status} /></td>
                 <td>{r.invoiceNo ?? '-'}</td>
                 <td>
-                  <Badge status={r.payment} />
+                  {r.payment && <Badge status={r.payment} />}
                   {r.payment === 'PARTIAL' && <span className="due">Due {fmt(r.dueAmount)}</span>}
                 </td>
                 <td className="num">{fmt(r.total)}</td>

@@ -42,7 +42,7 @@ const COMPANY = {
 export type ClearancePdfJob = {
   jobNo: string;
   invoiceNo: string;
-  payment: string;
+  payment: string | null;
   invoicedAt: Date;
   total: any;
   gdNo?: string | null;

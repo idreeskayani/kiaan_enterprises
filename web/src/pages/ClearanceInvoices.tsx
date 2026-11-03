@@ -29,7 +29,7 @@ export default function ClearanceInvoices() {
       if (q.trim()) qs.set('q', q.trim());
       api(`/clearance?${qs.toString()}`)
         .then((r) => {
-          setRows(r);
+          setRows(r.filter((x: any) => x.payment));
           setError('');
         })
         .catch((e) => setError(e.message));

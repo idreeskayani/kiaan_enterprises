@@ -98,9 +98,10 @@ export class ClearanceService {
       where.status = ClearanceStatus.RELEASED;
     } else if (scope === 'ready') {
       where.status = ClearanceStatus.RELEASED;
-      where.payment = ClearancePayment.UNINVOICED;
+      where.payment = null; // released but no invoice yet
     } else if (scope === 'invoiced') {
       where.invoiceNo = { not: null };
+      where.payment = { not: null };
     }
     if (status && status in ClearanceStatus) where.status = status as ClearanceStatus;
     if (payment && payment in ClearancePayment) where.payment = payment as ClearancePayment;
@@ -234,7 +235,7 @@ export class ClearanceService {
     if (!job.invoiceNo) throw new BadRequestException('This job has no invoice');
     await this.prisma.clearanceJob.update({
       where: { id },
-      data: { invoiceNo: null, invoicedAt: null, payment: ClearancePayment.UNINVOICED, dueAmount: 0 },
+      data: { invoiceNo: null, invoicedAt: null, payment: null, dueAmount: 0 },
     });
     return this.findOne(id);
   }
@@ -299,7 +300,7 @@ export class ClearanceService {
 
     const live = all.filter((j) => j.status !== ClearanceStatus.CANCELLED);
     const invoiced = live.filter(
-      (j) => j.payment !== ClearancePayment.UNINVOICED && j.payment !== ClearancePayment.DRAFT,
+      (j) => j.payment !== null && j.payment !== ClearancePayment.DRAFT,
     );
     const count = (p: ClearancePayment) => invoiced.filter((j) => j.payment === p).length;
     const outstanding = invoiced.reduce(
@@ -319,7 +320,7 @@ export class ClearanceService {
       inProgress: live.filter((j) => j.status !== ClearanceStatus.RELEASED).length,
       released: live.filter((j) => j.status === ClearanceStatus.RELEASED).length,
       readyToInvoice: live.filter(
-        (j) => j.status === ClearanceStatus.RELEASED && j.payment === ClearancePayment.UNINVOICED,
+        (j) => j.status === ClearanceStatus.RELEASED && j.payment === null,
       ).length,
       byStatus,
       invoices: {

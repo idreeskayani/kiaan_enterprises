@@ -48,7 +48,7 @@ button:disabled { opacity: .6; cursor: default; }
 .modal .or { text-align: center; color: #6b7686; font-size: 12px; margin: 14px 0; }
 .modal .actions { display: flex; gap: 8px; margin-top: 14px; }
 .modal .actions button { flex: 1; }
-.badge.PENDING, .badge.UNINVOICED { background: #e5e9f0; color: #475569; }
+.badge.PENDING { background: #e5e9f0; color: #475569; }
 .badge.DOCS_RECEIVED, .badge.GD_FILED { background: #e0e7ff; color: #3730a3; }
 .badge.ASSESSED, .badge.DUTY_PAID { background: #fef3c7; color: #92400e; }
 .badge.EXAMINATION { background: #ffedd5; color: #9a3412; }

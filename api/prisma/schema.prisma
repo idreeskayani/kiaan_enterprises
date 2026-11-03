@@ -196,7 +196,6 @@ enum ClearanceStatus {
 }
 
 enum ClearancePayment {
-  UNINVOICED
   UNPAID
   PARTIAL
   PAID
@@ -230,7 +229,7 @@ model ClearanceJob {
   total           Decimal            @default(0) @db.Decimal(14, 2)
   invoiceNo       String?            @unique
   invoicedAt      DateTime?
-  payment         ClearancePayment   @default(UNINVOICED)
+  payment         ClearancePayment?
   dueAmount       Decimal            @default(0) @db.Decimal(14, 2)
   history         ClearanceHistory[]
   createdAt       DateTime           @default(now())
