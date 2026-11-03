@@ -15,7 +15,7 @@ export const CHARGE_CODES: { code: string; label: string }[] = [
   { code: '203', label: 'Customs Entry Weboc' },
   { code: '204', label: 'Packing / Wiring and sealing' },
   { code: '205', label: 'Handling Charges' },
-  { code: '206', label: 'Sundries misc.' },
+  { code: '206', label: 'Service Charges.' },
   { code: '207', label: 'MCD Documentation Verification Charges' },
   { code: '208', label: 'EIF&Customs' },
   { code: '209', label: 'Service Charges Plus Customs' },
