@@ -36,7 +36,7 @@ function Layout() {
       const r = await api('/auth/return-to-admin', { method: 'POST' });
       setToken(r.accessToken);
       setUser(r.user);
-      window.location.href = '/users';
+      nav('/users');
     } catch (e) {
       window.alert((e as Error).message);
     }

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api, setToken, setUser } from '../api';
 import { TrashIcon } from '../Icons';
 
@@ -11,6 +12,7 @@ const ROLE_LABELS: Record<string, string> = {
 const CREATABLE = ['OPERATOR', 'ACCOUNTANT', 'CLEARING_AGENT'];
 
 export default function Users() {
+  const nav = useNavigate();
   const [users, setUsers] = useState<any[]>([]);
   const [error, setError] = useState('');
   const [ok, setOk] = useState('');
@@ -52,7 +54,7 @@ export default function Users() {
       const r = await api(`/auth/users/${u.id}/impersonate`, { method: 'POST' });
       setToken(r.accessToken);
       setUser({ ...r.user, impersonating: true });
-      window.location.href = r.user.role === 'CLEARING_AGENT' ? '/clearance' : '/';
+      nav(r.user.role === 'CLEARING_AGENT' ? '/clearance' : '/');
     } catch (err) {
       setError((err as Error).message);
     }
