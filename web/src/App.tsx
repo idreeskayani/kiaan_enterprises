@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { ReactNode } from 'react';
 import Dashboard from './pages/Dashboard';
 import ExchangeRates from './pages/ExchangeRates';
@@ -21,6 +22,14 @@ function Layout() {
   const nav = useNavigate();
   const { pathname } = useLocation();
   const user = getUser();
+  const [open, setOpen] = useState(() => {
+    const saved = localStorage.getItem('sidebar');
+    return saved ? saved === 'open' : window.innerWidth >= 900;
+  });
+  const toggleMenu = () => {
+    localStorage.setItem('sidebar', open ? 'closed' : 'open');
+    setOpen(!open);
+  };
   if (!getToken() || !user) return <Navigate to="/login" replace />;
   const role = user.role;
   const admin = role === 'ADMIN';
@@ -43,9 +52,12 @@ function Layout() {
   }
 
   return (
-    <div className="app">
+    <div className={`app${open ? '' : ' collapsed'}`}>
       <aside>
-        <h2>{agent ? 'TNI Enterprises' : 'Kiaan Cargo'}</h2>
+        <div className="side-head">
+          <h2>{agent ? 'TNI Enterprises' : 'Kiaan Cargo'}</h2>
+          <button type="button" className="icon-btn" onClick={toggleMenu} title="Hide menu" aria-label="Hide menu">«</button>
+        </div>
         {admin ? (
           <NavLink to="/users">Users</NavLink>
         ) : agent ? (
@@ -77,6 +89,7 @@ function Layout() {
         </button>
       </aside>
       <main>
+        <button type="button" className="icon-btn menu-toggle" onClick={toggleMenu} title="Show menu" aria-label="Show menu">☰</button>
         {user.impersonating && (
           <div
             style={{

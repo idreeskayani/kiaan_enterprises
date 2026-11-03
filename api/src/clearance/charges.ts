@@ -17,6 +17,7 @@ export const CHARGE_CODES: { code: string; label: string }[] = [
   { code: '205', label: 'Handling Charges' },
   { code: '206', label: 'Sundries misc.' },
   { code: '207', label: 'MCD Documentation Verification Charges' },
+  { code: '208', label: 'EIF&Customs' },
   { code: '209', label: 'Service Charges Plus Customs' },
   { code: '210', label: 'Carriage Airport to Islamabad' },
   { code: '213', label: 'Airline DO Charges' },
