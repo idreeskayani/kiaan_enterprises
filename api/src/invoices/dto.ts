@@ -50,3 +50,8 @@ export class UpdateCostPaymentDto extends PaymentInfoDto {
 
   @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }) @IsPositive() dueAmount?: number;
 }
+
+// Save the customer's remaining-dues statement: DRAFT = kept for later, SENT = shared with the customer
+export class SaveDuesReportDto {
+  @IsOptional() @IsIn(['DRAFT', 'SENT']) status?: 'DRAFT' | 'SENT';
+}

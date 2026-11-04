@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import {
   CostPayment,
+  DuesReportStatus,
   InvoiceStatus,
   PaymentDirection,
   PaymentMethod,
@@ -17,6 +18,8 @@ import type { CreateShipmentDto } from '../shipments/dto.js';
 import type { AddCostDto, PaymentInfoDto } from './dto.js';
 import { ShipmentsService } from '../shipments/shipments.service.js';
 import { buildInvoicePdf } from './invoice-pdf.js';
+import { buildDuesPdf } from './dues-pdf.js';
+import type { DuesData, DuesItem } from './dues-pdf.js';
 import type { PdfInvoice } from './invoice-pdf.js';
 
 @Injectable()
@@ -205,6 +208,8 @@ export class InvoicesService {
     const paymentWhere =
       payment === 'PAID'
         ? { status: InvoiceStatus.PAID }
+        : payment === 'DUES'
+          ? { status: InvoiceStatus.ISSUED } // issued and not fully paid: what the customer still owes
         : payment === 'DRAFT'
           ? { status: InvoiceStatus.DRAFT }
           : payment === 'UNPAID'
@@ -238,6 +243,13 @@ export class InvoicesService {
             mawb: r.shipment?.blAwbNo ?? d.blAwbNo ?? '',
             hawb: r.shipment?.hawbNo ?? d.hawbNo ?? '',
             lastPayment: payments[0] ?? null,
+            // still owed by the customer: part-paid -> what is left, unpaid -> the whole total
+            remaining:
+              r.status === InvoiceStatus.ISSUED
+                ? Number(r.dueAmount) > 0
+                  ? Number(r.dueAmount)
+                  : Number(r.total)
+                : 0,
             customerName: r.customer?.name ?? r.shipment?.customer.name ?? '',
             costTotal: Math.round(costTotal * 100) / 100,
             profit: Math.round((Number(r.total) - costTotal) * 100) / 100,
@@ -531,6 +543,109 @@ export class InvoicesService {
     await this.findOne(id);
     await this.prisma.invoice.delete({ where: { id } });
     return { deleted: true };
+  }
+
+  // ---- remaining dues statement (customer ledger)
+  // Issued invoices that are not fully paid. Drafts, paid and cancelled invoices are left out.
+  private async duesFor(customerId: string): Promise<DuesData> {
+    const customer = await this.prisma.customer.findUnique({ where: { id: customerId } });
+    if (!customer) throw new NotFoundException('Customer not found');
+
+    const invoices = await this.prisma.invoice.findMany({
+      where: {
+        status: InvoiceStatus.ISSUED,
+        OR: [{ customerId }, { shipment: { customerId } }],
+      },
+      include: { shipment: { select: { blAwbNo: true, hawbNo: true } } },
+      orderBy: { issuedAt: 'asc' },
+    });
+
+    const round = (n: number) => Math.round(n * 100) / 100;
+    const items: DuesItem[] = invoices.map((r) => {
+      const total = Number(r.total);
+      const remaining = Number(r.dueAmount) > 0 ? Number(r.dueAmount) : total;
+      const d = (r.details ?? {}) as { blAwbNo?: string; hawbNo?: string };
+      return {
+        invoiceNo: r.invoiceNo,
+        issuedAt: r.issuedAt,
+        mawb: r.shipment?.blAwbNo ?? d.blAwbNo ?? '',
+        hawb: r.shipment?.hawbNo ?? d.hawbNo ?? '',
+        total: round(total),
+        paid: round(total - remaining),
+        remaining: round(remaining),
+      };
+    });
+    const sum = (f: (i: DuesItem) => number) => round(items.reduce((a, i) => a + f(i), 0));
+    return {
+      customer: {
+        name: customer.name,
+        address: customer.address,
+        phone: customer.phone,
+        taxNumber: customer.taxNumber,
+      },
+      items,
+      totalInvoiced: sum((i) => i.total),
+      totalPaid: sum((i) => i.paid),
+      totalRemaining: sum((i) => i.remaining),
+    };
+  }
+
+  private safeName(v: string) {
+    return v.replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+
+  // "View report": built from today's figures, nothing is saved.
+  async duesPdf(customerId: string) {
+    const data = await this.duesFor(customerId);
+    const buffer = await buildDuesPdf({ ...data, date: new Date() });
+    return { buffer, filename: `Dues statement - ${this.safeName(data.customer.name)}.pdf` };
+  }
+
+  private async nextDuesReportNo() {
+    const prefix = `DR-${new Date().getFullYear()}-`;
+    const last = await this.prisma.duesReport.findFirst({
+      where: { reportNo: { startsWith: prefix } },
+      orderBy: { reportNo: 'desc' },
+      select: { reportNo: true },
+    });
+    const n = last ? Number(last.reportNo.slice(prefix.length)) || 0 : 0;
+    return `${prefix}${String(n + 1).padStart(5, '0')}`;
+  }
+
+  // "Save draft" (DRAFT) or a copy of what was shared (SENT). The figures are frozen in the snapshot.
+  async saveDuesReport(customerId: string, status: 'DRAFT' | 'SENT' = 'DRAFT') {
+    const data = await this.duesFor(customerId);
+    if (data.items.length === 0) throw new BadRequestException('This customer has no remaining dues');
+    const reportNo = await this.nextDuesReportNo();
+    return this.prisma.duesReport.create({
+      data: {
+        reportNo,
+        customerId,
+        status: status === 'SENT' ? DuesReportStatus.SENT : DuesReportStatus.DRAFT,
+        totalDue: data.totalRemaining,
+        invoiceCount: data.items.length,
+        snapshot: JSON.parse(JSON.stringify(data)) as Prisma.InputJsonValue,
+      },
+      select: { id: true, reportNo: true, customerId: true, status: true, totalDue: true, invoiceCount: true, createdAt: true },
+    });
+  }
+
+  listDuesReports(customerId: string) {
+    return this.prisma.duesReport.findMany({
+      where: { customerId },
+      orderBy: { createdAt: 'desc' },
+      take: 20,
+      select: { id: true, reportNo: true, customerId: true, status: true, totalDue: true, invoiceCount: true, createdAt: true },
+    });
+  }
+
+  // A saved report, printed exactly as it was saved.
+  async duesReportPdf(reportId: string) {
+    const rep = await this.prisma.duesReport.findUnique({ where: { id: reportId } });
+    if (!rep) throw new NotFoundException('Report not found');
+    const data = rep.snapshot as unknown as DuesData;
+    const buffer = await buildDuesPdf({ ...data, reportNo: rep.reportNo, date: rep.createdAt });
+    return { buffer, filename: `${rep.reportNo} - ${this.safeName(data.customer.name)}.pdf` };
   }
 
   async pdf(id: string) {

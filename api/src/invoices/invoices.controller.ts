@@ -17,7 +17,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { Roles } from '../auth/roles.decorator.js';
 import { RolesGuard } from '../auth/roles.guard.js';
 import { CreateShipmentDto } from '../shipments/dto.js';
-import { AddCostDto, UpdateCostPaymentDto, UpdateInvoiceStatusDto } from './dto.js';
+import { AddCostDto, SaveDuesReportDto, UpdateCostPaymentDto, UpdateInvoiceStatusDto } from './dto.js';
 import { InvoicesService } from './invoices.service.js';
 
 @Controller('invoices')
@@ -73,6 +73,38 @@ export class InvoicesController {
   @Get('payments/:paymentId/image')
   paymentImage(@Param('paymentId', ParseUUIDPipe) paymentId: string) {
     return this.invoices.paymentImage(paymentId);
+  }
+
+  // ---- remaining dues statement of one customer (declared before ':id' routes)
+  @Get('dues/:customerId/pdf')
+  async duesPdf(@Param('customerId', ParseUUIDPipe) customerId: string) {
+    const { buffer, filename } = await this.invoices.duesPdf(customerId);
+    return new StreamableFile(buffer, {
+      type: 'application/pdf',
+      disposition: `inline; filename="${filename}"`,
+    });
+  }
+
+  @Get('dues/:customerId/reports')
+  duesReports(@Param('customerId', ParseUUIDPipe) customerId: string) {
+    return this.invoices.listDuesReports(customerId);
+  }
+
+  @Post('dues/:customerId/report')
+  saveDuesReport(
+    @Param('customerId', ParseUUIDPipe) customerId: string,
+    @Body() dto: SaveDuesReportDto,
+  ) {
+    return this.invoices.saveDuesReport(customerId, dto.status);
+  }
+
+  @Get('dues-reports/:reportId/pdf')
+  async duesReportPdf(@Param('reportId', ParseUUIDPipe) reportId: string) {
+    const { buffer, filename } = await this.invoices.duesReportPdf(reportId);
+    return new StreamableFile(buffer, {
+      type: 'application/pdf',
+      disposition: `inline; filename="${filename}"`,
+    });
   }
 
   @Get()

@@ -100,3 +100,15 @@ export async function openQuotationPdf(quotationId: string, win?: Window | null)
   }
   showBlob(await res.blob(), win);
 }
+
+// Opens any PDF route of the API (used by the dues report buttons).
+export async function openPdfPath(path: string, win?: Window | null) {
+  const res = await fetch(`${BASE}${path}`, { headers: { Authorization: `Bearer ${getToken()}` } });
+  if (!res.ok) {
+    win?.close();
+    const data = await res.json().catch(() => null);
+    const m = data?.message;
+    throw new Error(Array.isArray(m) ? m.join(', ') : (m ?? 'Could not load the PDF'));
+  }
+  showBlob(await res.blob(), win);
+}

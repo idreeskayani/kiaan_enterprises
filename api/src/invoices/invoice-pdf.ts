@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import PDFDocument from 'pdfkit';
 
 // Company details printed on every invoice. Edit here if they change.
-const COMPANY = {
+export const COMPANY = {
   name: 'KIAAN FREIGHT SERVICES',
   email: 'info.kfs786@gmail.com',
   phones: '+92 313 5388630 | +92 346 6479976',
@@ -24,8 +24,8 @@ const COMPANY = {
 };
 
 // height / width of the two images in api/assets
-const TOP_RATIO = 0.2813;
-const BOTTOM_RATIO = 0.162;
+export const TOP_RATIO = 0.2813;
+export const BOTTOM_RATIO = 0.162;
 
 const LABELS: Record<
   string,
@@ -84,7 +84,7 @@ export type PdfInvoice = {
 export const money = (v: any) =>
   Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-const asset = (name: string) => {
+export const asset = (name: string) => {
   const p = join(process.cwd(), 'assets', name);
   return existsSync(p) ? p : null;
 };

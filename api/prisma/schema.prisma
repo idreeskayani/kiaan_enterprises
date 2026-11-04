@@ -60,6 +60,7 @@ model Customer {
   shipments Shipment[]
   quotations Quotation[]
   invoices   Invoice[]
+  duesReports DuesReport[]
 }
 
 model Shipment {
@@ -228,6 +229,27 @@ model Payment {
 
   @@index([invoiceId])
   @@index([costId])
+}
+
+enum DuesReportStatus {
+  DRAFT
+  SENT
+}
+
+// A saved copy of a customer's remaining-dues statement. `snapshot` keeps the figures as they were
+// when the report was saved or sent, so an old report never changes when payments are recorded later.
+model DuesReport {
+  id          String           @id @default(uuid())
+  reportNo    String           @unique
+  customerId  String
+  customer    Customer         @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  status      DuesReportStatus @default(DRAFT)
+  totalDue    Decimal          @db.Decimal(14, 2)
+  invoiceCount Int
+  snapshot    Json
+  createdAt   DateTime         @default(now())
+
+  @@index([customerId])
 }
 
 model StatusHistory {
