@@ -114,6 +114,22 @@ export default function Invoices() {
     }
   }
 
+  // a saved draft was shared: mark it sent (once); the list refreshes when the share popup closes
+  const sentDrafts = useRef(new Set<string>());
+  function draftShared(id: string) {
+    if (sentDrafts.current.has(id)) return;
+    sentDrafts.current.add(id);
+    api(`/invoices/dues-reports/${id}/sent`, { method: 'PATCH' }).catch((e) => setError((e as Error).message));
+  }
+
+  function removeDraft(rep: { id: string; reportNo: string }) {
+    if (!window.confirm(`Delete draft ${rep.reportNo}? This cannot be undone.`)) return;
+    setError('');
+    api(`/invoices/dues-reports/${rep.id}`, { method: 'DELETE' })
+      .then(loadReports)
+      .catch((e) => setError((e as Error).message));
+  }
+
   // sharing keeps a copy of what was sent (once per share, even if several buttons are used)
   function reportShared() {
     if (Date.now() - lastSent.current < 60_000) return;
@@ -382,26 +398,55 @@ export default function Invoices() {
           <table style={{ marginTop: 14 }}>
             <thead>
               <tr>
-                <th>Saved reports</th>
+                <th>Saved drafts</th>
                 <th>Type</th>
-                <th>Status</th>
                 <th>Date</th>
                 <th className="num">Remaining (PKR)</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
-              {reports.filter((x) => x.customerId === selected?.id).map((rep) => (
+              {reports.filter((x) => x.customerId === selected.id).map((rep) => (
                 <tr key={rep.id}>
                   <td>{rep.reportNo}</td>
                   <td>{scopeLabel[rep.scope] ?? 'Remaining dues'}</td>
-                  <td>{rep.status === 'SENT' ? 'Sent' : 'Draft'}</td>
                   <td>{new Date(rep.createdAt).toLocaleDateString()}</td>
                   <td className="num">{fmt(rep.totalDue)}</td>
                   <td>
-                    <button className="ghost small" onClick={() => viewReport(`/invoices/dues-reports/${rep.id}/pdf`)}>
-                      View
-                    </button>
+                    <div className="row" style={{ gap: 6 }}>
+                      <button className="ghost small" onClick={() => viewReport(`/invoices/dues-reports/${rep.id}/pdf`)}>
+                        View
+                      </button>
+                      {/* marked sent as soon as it is shared; leaves the list when the share popup closes */}
+                      <ShareButton
+                        path={`/invoices/dues-reports/${rep.id}/pdf`}
+                        invoiceNo={rep.reportNo}
+                        company="Kiaan Freight Services"
+                        customer={selected.name}
+                        total={rep.totalDue}
+                        label="Share"
+                        docLabel="statement"
+                        onShared={() => draftShared(rep.id)}
+                        onClose={loadReports}
+                      />
+                      <button
+                        className="small"
+                        style={{ background: '#fee2e2', color: '#991b1b' }}
+                        title="Delete draft"
+                        aria-label="Delete draft"
+                        onClick={() => removeDraft(rep)}
+                      >
+                        <svg
+                          width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                          strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                        >
+                          <polyline points="3 6 5 6 21 6" />
+                          <path d="M19 6l-1 14H6L5 6" />
+                          <path d="M10 11v6M14 11v6" />
+                          <path d="M9 6V4h6v2" />
+                        </svg>
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}

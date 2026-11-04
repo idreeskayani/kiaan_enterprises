@@ -661,11 +661,31 @@ export class InvoicesService {
 
   listDuesReports(customerId: string) {
     return this.prisma.duesReport.findMany({
-      where: { customerId },
+      // only drafts: a report that was sent leaves the list (it stays stored as a record)
+      where: { customerId, status: DuesReportStatus.DRAFT },
       orderBy: { createdAt: 'desc' },
-      take: 20,
+      take: 50,
       select: { id: true, reportNo: true, customerId: true, scope: true, status: true, totalDue: true, invoiceCount: true, createdAt: true },
     });
+  }
+
+  // A draft that was shared with the customer becomes SENT and leaves the drafts list.
+  async markDuesReportSent(reportId: string) {
+    const rep = await this.prisma.duesReport.findUnique({ where: { id: reportId }, select: { id: true } });
+    if (!rep) throw new NotFoundException('Report not found');
+    await this.prisma.duesReport.update({ where: { id: reportId }, data: { status: DuesReportStatus.SENT } });
+    return { sent: true };
+  }
+
+  // Only drafts can be deleted. A sent report is kept as the record of what the customer received.
+  async removeDuesReport(reportId: string) {
+    const rep = await this.prisma.duesReport.findUnique({ where: { id: reportId }, select: { status: true } });
+    if (!rep) throw new NotFoundException('Report not found');
+    if (rep.status === DuesReportStatus.SENT) {
+      throw new ConflictException('A sent report cannot be deleted');
+    }
+    await this.prisma.duesReport.delete({ where: { id: reportId } });
+    return { deleted: true };
   }
 
   // A saved report, printed exactly as it was saved.

@@ -103,6 +103,16 @@ export class InvoicesController {
     return this.invoices.saveDuesReport(customerId, dto.status, dto.scope);
   }
 
+  @Patch('dues-reports/:reportId/sent')
+  markDuesReportSent(@Param('reportId', ParseUUIDPipe) reportId: string) {
+    return this.invoices.markDuesReportSent(reportId);
+  }
+
+  @Delete('dues-reports/:reportId')
+  removeDuesReport(@Param('reportId', ParseUUIDPipe) reportId: string) {
+    return this.invoices.removeDuesReport(reportId);
+  }
+
   @Get('dues-reports/:reportId/pdf')
   async duesReportPdf(@Param('reportId', ParseUUIDPipe) reportId: string) {
     const { buffer, filename } = await this.invoices.duesReportPdf(reportId);
