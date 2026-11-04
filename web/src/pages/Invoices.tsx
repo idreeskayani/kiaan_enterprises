@@ -4,6 +4,7 @@ import { api, getUser, openPdf } from '../api';
 import { Badge, fmt } from '../components';
 import { ShareButton } from '../Share';
 import CostsModal from '../CostsModal';
+import { PayFields, PaymentNote, emptyPay, payBody, payError as checkPay, type PayInfo } from '../PaymentForm';
 
 export default function Invoices() {
   const freightStaff = getUser()?.role === 'OPERATOR';
@@ -19,6 +20,7 @@ export default function Invoices() {
   const [due, setDue] = useState('');
   const [payError, setPayError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [pay, setPay] = useState<PayInfo>(emptyPay);
 
   async function load() {
     try {
@@ -70,6 +72,7 @@ export default function Invoices() {
   function openPay(r: any) {
     setPayFor(r);
     setDue('');
+    setPay(emptyPay);
     setPayError('');
   }
 
@@ -79,10 +82,12 @@ export default function Invoices() {
   }
 
   async function savePayment(body: { status: 'PAID' | 'PARTIAL'; dueAmount?: number }) {
+    const err = checkPay(pay);
+    if (err) return setPayError(err);
     setSaving(true);
     setPayError('');
     try {
-      await api(`/invoices/${payFor.id}/status`, { method: 'PATCH', body });
+      await api(`/invoices/${payFor.id}/status`, { method: 'PATCH', body: { ...body, ...payBody(pay) } });
       setPayFor(null);
       await load();
     } catch (e) {
@@ -136,6 +141,8 @@ export default function Invoices() {
           <thead>
             <tr>
               <th>Invoice</th>
+              <th>MAWB</th>
+              <th>HAWB</th>
               <th>Shipment</th>
               <th>Customer</th>
               <th className="num">Total</th>
@@ -154,6 +161,8 @@ export default function Invoices() {
               return (
                 <tr key={r.id}>
                   <td>{r.invoiceNo}</td>
+                  <td>{r.mawb || <span className="muted">—</span>}</td>
+                  <td>{r.hawb || <span className="muted">—</span>}</td>
                   <td>{r.shipment ? <Link to={`/shipments/${r.shipmentId}`}>{r.shipment.refNo}</Link> : ''}</td>
                   <td>{r.customerName}</td>
                   <td className="num">{fmt(r.total)}</td>
@@ -170,6 +179,7 @@ export default function Invoices() {
                   <td>
                     <Badge status={paid ? 'PAID' : draft ? 'DRAFT' : partial ? 'PARTIAL' : 'UNPAID'} />
                     {partial && <span className="due">Remaining dues: PKR {fmt(dueNow)}</span>}
+                    <PaymentNote p={r.lastPayment} />
                   </td>
                   <td>{new Date(r.issuedAt).toLocaleDateString()}</td>
                   <td>
@@ -224,7 +234,7 @@ export default function Invoices() {
               );
             })}
             {rows.length === 0 && (
-              <tr><td colSpan={8} className="muted">No invoices found.</td></tr>
+              <tr><td colSpan={10} className="muted">No invoices found.</td></tr>
             )}
           </tbody>
         </table>
@@ -241,8 +251,12 @@ export default function Invoices() {
             <p className="muted" style={{ margin: '0 0 14px' }}>
               {payFor.customerName} · Total PKR {fmt(payFor.total)}
             </p>
+            <span className="paydir credit">Credit · money received from customer</span>
             {payError && <div className="error">{payError}</div>}
 
+            <PayFields value={pay} onChange={setPay} disabled={saving} />
+
+            <div style={{ height: 14 }} />
             <button style={{ width: '100%' }} disabled={saving} onClick={() => savePayment({ status: 'PAID' })}>
               Fully paid
             </button>

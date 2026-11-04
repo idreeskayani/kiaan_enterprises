@@ -66,7 +66,13 @@ export class InvoicesController {
     @Param('costId', ParseUUIDPipe) costId: string,
     @Body() dto: UpdateCostPaymentDto,
   ) {
-    return this.invoices.setCostPayment(costId, dto.status, dto.dueAmount);
+    return this.invoices.setCostPayment(costId, dto.status, dto.dueAmount, dto);
+  }
+
+  // Proof picture of one payment (declared before ':id' routes)
+  @Get('payments/:paymentId/image')
+  paymentImage(@Param('paymentId', ParseUUIDPipe) paymentId: string) {
+    return this.invoices.paymentImage(paymentId);
   }
 
   @Get()
@@ -124,7 +130,7 @@ export class InvoicesController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateInvoiceStatusDto,
   ) {
-    return this.invoices.updateStatus(id, dto.status, dto.dueAmount);
+    return this.invoices.updateStatus(id, dto.status, dto.dueAmount, dto);
   }
 
   @Delete(':id')

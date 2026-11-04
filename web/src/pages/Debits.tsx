@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api';
 import { Badge, fmt } from '../components';
+import { PayFields, PaymentNote, emptyPay, payBody, payError as checkPay, type PayInfo } from '../PaymentForm';
 
 // Every debit (cost) of every invoice in one list: filter by company and payment status.
 export default function Debits() {
@@ -15,6 +16,7 @@ export default function Debits() {
   const [due, setDue] = useState('');
   const [payError, setPayError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [pay, setPay] = useState<PayInfo>(emptyPay);
 
   async function load() {
     try {
@@ -57,6 +59,7 @@ export default function Debits() {
   function openPay(r: any) {
     setPayFor(r);
     setDue('');
+    setPay(emptyPay);
     setPayError('');
   }
 
@@ -69,10 +72,18 @@ export default function Debits() {
     target: any,
     body: { status: 'PAID' | 'UNPAID' | 'PARTIAL'; dueAmount?: number },
   ) {
+    // PAID / PARTIAL need the payment method; "Mark unpaid" does not
+    if (body.status !== 'UNPAID') {
+      const err = checkPay(pay);
+      if (err) return setPayError(err);
+    }
     setSaving(true);
     setPayError('');
     try {
-      await api(`/invoices/costs/${target.id}/payment`, { method: 'PATCH', body });
+      await api(`/invoices/costs/${target.id}/payment`, {
+        method: 'PATCH',
+        body: body.status === 'UNPAID' ? body : { ...body, ...payBody(pay) },
+      });
       setPayFor(null);
       await load();
     } catch (e) {
@@ -184,6 +195,7 @@ export default function Debits() {
                   <td>
                     <Badge status={r.payment} />
                     {partial && <span className="due">Remaining dues: PKR {fmt(r.dueAmount)}</span>}
+                    <PaymentNote p={r.lastPayment} />
                   </td>
                   <td>
                     <div className="row" style={{ gap: 6 }}>
@@ -219,8 +231,12 @@ export default function Debits() {
             <p className="muted" style={{ margin: '0 0 14px' }}>
               {payFor.label} · {payFor.invoiceNo} · Amount PKR {fmt(payFor.amount)}
             </p>
+            <span className="paydir debit">Debit · money paid to vendor</span>
             {payError && <div className="error">{payError}</div>}
 
+            <PayFields value={pay} onChange={setPay} disabled={saving} />
+
+            <div style={{ height: 14 }} />
             <button
               style={{ width: '100%' }}
               disabled={saving}

@@ -1,9 +1,12 @@
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module.js';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  // bodyParser is turned off so the JSON limit can be raised for payment pictures (default is 100kb)
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { bodyParser: false });
+  app.useBodyParser('json', { limit: '5mb' });
 
   app.enableCors({
     origin: process.env.FRONTEND_URL?.split(',').map((o) => o.trim()),

@@ -6,10 +6,24 @@ import {
   IsOptional,
   IsPositive,
   IsString,
+  Matches,
   MaxLength,
 } from 'class-validator';
 
-export class UpdateInvoiceStatusDto {
+// How a payment was made. Sent together with PAID / PARTIAL.
+export class PaymentInfoDto {
+  @IsOptional() @IsIn(['CASH', 'CHEQUE', 'ONLINE']) method?: 'CASH' | 'CHEQUE' | 'ONLINE';
+  // cheque number (required for CHEQUE) or online transaction reference
+  @IsOptional() @IsString() @MaxLength(60) reference?: string;
+  // optional proof picture as a data URL (the web app shrinks it before sending)
+  @IsOptional()
+  @IsString()
+  @MaxLength(2_800_000)
+  @Matches(/^data:image\/(jpeg|png|webp);base64,/, { message: 'Picture must be a JPG, PNG or WebP image' })
+  image?: string;
+}
+
+export class UpdateInvoiceStatusDto extends PaymentInfoDto {
   // PARTIAL = part-paid: dueAmount is the amount still owed (PKR)
   @IsIn(['PAID', 'UNPAID', 'PARTIAL']) status: 'PAID' | 'UNPAID' | 'PARTIAL';
 
@@ -31,7 +45,7 @@ export class AddCostDto {
 }
 
 // Payment of a debit (what we owe a vendor). PARTIAL: dueAmount is what is still owed (PKR)
-export class UpdateCostPaymentDto {
+export class UpdateCostPaymentDto extends PaymentInfoDto {
   @IsIn(['PAID', 'UNPAID', 'PARTIAL']) status: 'PAID' | 'UNPAID' | 'PARTIAL';
 
   @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }) @IsPositive() dueAmount?: number;

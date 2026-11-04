@@ -154,6 +154,7 @@ model Invoice {
   dueAmount  Decimal       @default(0) @db.Decimal(14, 2)
   lines      InvoiceLine[]
   costs      InvoiceCost[]
+  payments   Payment[]
   issuedAt   DateTime      @default(now())
 }
 
@@ -190,9 +191,43 @@ model InvoiceCost {
   // whether WE have paid this vendor yet. dueAmount = still owed to the vendor (PKR) when PARTIAL
   payment       CostPayment @default(UNPAID)
   dueAmount     Decimal  @default(0) @db.Decimal(14, 2)
+  payments      Payment[]
 
   @@index([invoiceId])
   @@index([vendor])
+}
+
+enum PaymentMethod {
+  CASH
+  CHEQUE
+  ONLINE
+}
+
+// CREDIT = money received from a customer (invoice), DEBIT = money paid to a vendor (cost)
+enum PaymentDirection {
+  CREDIT
+  DEBIT
+}
+
+// One payment event. Exactly one of invoiceId / costId is set.
+model Payment {
+  id        String           @id @default(uuid())
+  direction PaymentDirection
+  method    PaymentMethod
+  // cheque number (required for CHEQUE) or transaction reference (ONLINE, optional)
+  reference String?
+  amount    Decimal          @db.Decimal(14, 2)
+  // optional proof picture, kept as a compressed data URL
+  hasImage  Boolean          @default(false)
+  imageData String?
+  invoiceId String?
+  invoice   Invoice?         @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  costId    String?
+  cost      InvoiceCost?     @relation(fields: [costId], references: [id], onDelete: Cascade)
+  paidAt    DateTime         @default(now())
+
+  @@index([invoiceId])
+  @@index([costId])
 }
 
 model StatusHistory {

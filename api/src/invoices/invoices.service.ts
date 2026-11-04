@@ -4,10 +4,17 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { CostPayment, InvoiceStatus, Prisma, ShipmentStatus } from '@prisma/client';
+import {
+  CostPayment,
+  InvoiceStatus,
+  PaymentDirection,
+  PaymentMethod,
+  Prisma,
+  ShipmentStatus,
+} from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { CreateShipmentDto } from '../shipments/dto.js';
-import type { AddCostDto } from './dto.js';
+import type { AddCostDto, PaymentInfoDto } from './dto.js';
 import { ShipmentsService } from '../shipments/shipments.service.js';
 import { buildInvoicePdf } from './invoice-pdf.js';
 import type { PdfInvoice } from './invoice-pdf.js';
@@ -18,6 +25,57 @@ export class InvoicesService {
     private prisma: PrismaService,
     private shipments: ShipmentsService,
   ) {}
+
+  // The latest payment shown in the lists (the picture itself is loaded only on request).
+  private static readonly lastPaymentSelect = {
+    orderBy: { paidAt: 'desc' as const },
+    take: 1,
+    select: {
+      id: true,
+      direction: true,
+      method: true,
+      reference: true,
+      amount: true,
+      hasImage: true,
+      paidAt: true,
+    },
+  };
+
+  // A cheque needs its number. Cash and online transfer need nothing more.
+  private checkPaymentInfo(pay?: PaymentInfoDto) {
+    if (pay?.method === 'CHEQUE' && !pay.reference?.trim()) {
+      throw new BadRequestException('Enter the cheque number');
+    }
+  }
+
+  // Payment row for money that just moved. Nothing is saved when no method was sent or nothing was paid.
+  private paymentRow(
+    direction: PaymentDirection,
+    target: { invoiceId?: string; costId?: string },
+    amount: number,
+    pay?: PaymentInfoDto,
+  ): Prisma.PaymentCreateManyInput | null {
+    if (!pay?.method || !(amount > 0)) return null;
+    return {
+      direction,
+      method: pay.method as PaymentMethod,
+      reference: pay.reference?.trim() || null,
+      amount: Math.round(amount * 100) / 100,
+      hasImage: !!pay.image,
+      imageData: pay.image ?? null,
+      ...target,
+    };
+  }
+
+  // The proof picture of one payment (a data URL), or null.
+  async paymentImage(paymentId: string) {
+    const p = await this.prisma.payment.findUnique({
+      where: { id: paymentId },
+      select: { imageData: true },
+    });
+    if (!p) throw new NotFoundException('Payment not found');
+    return { image: p.imageData };
+  }
 
   // Next number after the highest existing one (safe after deletions).
   private async nextInvoiceNo() {
@@ -162,16 +220,24 @@ export class InvoicesService {
         where: { ...paymentWhere, ...customerWhere },
         include: {
           customer: { select: { name: true } },
-          shipment: { select: { refNo: true, customer: { select: { name: true } } } },
+          shipment: {
+            select: { refNo: true, blAwbNo: true, hawbNo: true, customer: { select: { name: true } } },
+          },
           costs: { select: { amount: true } },
+          payments: InvoicesService.lastPaymentSelect,
         },
         orderBy: { issuedAt: 'desc' },
       })
       .then((rows) =>
-        rows.map(({ costs, ...r }) => {
+        rows.map(({ costs, payments, ...r }) => {
           const costTotal = costs.reduce((sum, c) => sum + Number(c.amount), 0);
+          // a standalone invoice keeps its master / house numbers in the saved details
+          const d = (r.details ?? {}) as { blAwbNo?: string; hawbNo?: string };
           return {
             ...r,
+            mawb: r.shipment?.blAwbNo ?? d.blAwbNo ?? '',
+            hawb: r.shipment?.hawbNo ?? d.hawbNo ?? '',
+            lastPayment: payments[0] ?? null,
             customerName: r.customer?.name ?? r.shipment?.customer.name ?? '',
             costTotal: Math.round(costTotal * 100) / 100,
             profit: Math.round((Number(r.total) - costTotal) * 100) / 100,
@@ -230,8 +296,22 @@ export class InvoicesService {
 
   // Payment status only. This never touches the shipment's status.
   // PAID = fully paid, UNPAID = nothing paid, PARTIAL = part paid with dueAmount still owed.
-  async updateStatus(id: string, status: 'PAID' | 'UNPAID' | 'PARTIAL', dueAmount?: number) {
+  // A credit payment (money received from the customer) is recorded with PAID / PARTIAL.
+  async updateStatus(
+    id: string,
+    status: 'PAID' | 'UNPAID' | 'PARTIAL',
+    dueAmount?: number,
+    pay?: PaymentInfoDto,
+  ) {
     const invoice = await this.findOne(id);
+    if (status !== 'UNPAID') this.checkPaymentInfo(pay);
+    // what the customer still owed before this payment
+    const owedBefore =
+      invoice.status === InvoiceStatus.PAID
+        ? 0
+        : Number(invoice.dueAmount) > 0
+          ? Number(invoice.dueAmount)
+          : Number(invoice.total);
 
     if (status === 'PARTIAL') {
       if (dueAmount == null) {
@@ -242,19 +322,30 @@ export class InvoicesService {
           'Remaining dues must be less than the invoice total. Use "Mark unpaid" if nothing has been paid.',
         );
       }
-      return this.prisma.invoice.update({
-        where: { id },
-        data: { status: InvoiceStatus.ISSUED, dueAmount },
-      });
+      const row = this.paymentRow(PaymentDirection.CREDIT, { invoiceId: id }, owedBefore - dueAmount, pay);
+      const [updated] = await this.prisma.$transaction([
+        this.prisma.invoice.update({
+          where: { id },
+          data: { status: InvoiceStatus.ISSUED, dueAmount },
+        }),
+        ...(row ? [this.prisma.payment.create({ data: row })] : []),
+      ]);
+      return updated;
     }
 
-    return this.prisma.invoice.update({
-      where: { id },
-      data: {
-        status: status === 'PAID' ? InvoiceStatus.PAID : InvoiceStatus.ISSUED,
-        dueAmount: 0,
-      },
-    });
+    const row =
+      status === 'PAID' ? this.paymentRow(PaymentDirection.CREDIT, { invoiceId: id }, owedBefore, pay) : null;
+    const [updated] = await this.prisma.$transaction([
+      this.prisma.invoice.update({
+        where: { id },
+        data: {
+          status: status === 'PAID' ? InvoiceStatus.PAID : InvoiceStatus.ISSUED,
+          dueAmount: 0,
+        },
+      }),
+      ...(row ? [this.prisma.payment.create({ data: row })] : []),
+    ]);
+    return updated;
   }
 
   // Change a standalone invoice. The number, status and payments stay; details, lines and total are rebuilt.
@@ -346,20 +437,36 @@ export class InvoicesService {
             shipment: { select: { customer: { select: { name: true } } } },
           },
         },
+        payments: InvoicesService.lastPaymentSelect,
       },
       orderBy: { incurredAt: 'desc' },
     });
-    return rows.map(({ invoice, ...c }) => ({
+    return rows.map(({ invoice, payments, ...c }) => ({
       ...c,
+      lastPayment: payments[0] ?? null,
       invoiceNo: invoice.invoiceNo,
       customerName: invoice.customer?.name ?? invoice.shipment?.customer.name ?? '',
     }));
   }
 
   // Same rules as invoice payments: PARTIAL needs the remaining amount, which must be below the cost.
-  async setCostPayment(costId: string, status: 'PAID' | 'UNPAID' | 'PARTIAL', dueAmount?: number) {
+  // A debit payment (money paid out to the vendor) is recorded with PAID / PARTIAL.
+  async setCostPayment(
+    costId: string,
+    status: 'PAID' | 'UNPAID' | 'PARTIAL',
+    dueAmount?: number,
+    pay?: PaymentInfoDto,
+  ) {
     const cost = await this.prisma.invoiceCost.findUnique({ where: { id: costId } });
     if (!cost) throw new NotFoundException('Cost not found');
+    if (status !== 'UNPAID') this.checkPaymentInfo(pay);
+    // what we still owed the vendor before this payment
+    const owedBefore =
+      cost.payment === CostPayment.PAID
+        ? 0
+        : cost.payment === CostPayment.PARTIAL
+          ? Number(cost.dueAmount)
+          : Number(cost.amount);
     if (status === 'PARTIAL') {
       if (dueAmount == null) throw new BadRequestException('Enter the remaining dues amount');
       if (dueAmount >= Number(cost.amount)) {
@@ -367,15 +474,26 @@ export class InvoicesService {
           'Remaining dues must be less than the cost amount. Use "Unpaid" if nothing has been paid.',
         );
       }
-      return this.prisma.invoiceCost.update({
-        where: { id: costId },
-        data: { payment: CostPayment.PARTIAL, dueAmount },
-      });
+      const row = this.paymentRow(PaymentDirection.DEBIT, { costId }, owedBefore - dueAmount, pay);
+      const [updated] = await this.prisma.$transaction([
+        this.prisma.invoiceCost.update({
+          where: { id: costId },
+          data: { payment: CostPayment.PARTIAL, dueAmount },
+        }),
+        ...(row ? [this.prisma.payment.create({ data: row })] : []),
+      ]);
+      return updated;
     }
-    return this.prisma.invoiceCost.update({
-      where: { id: costId },
-      data: { payment: status === 'PAID' ? CostPayment.PAID : CostPayment.UNPAID, dueAmount: 0 },
-    });
+    const row =
+      status === 'PAID' ? this.paymentRow(PaymentDirection.DEBIT, { costId }, owedBefore, pay) : null;
+    const [updated] = await this.prisma.$transaction([
+      this.prisma.invoiceCost.update({
+        where: { id: costId },
+        data: { payment: status === 'PAID' ? CostPayment.PAID : CostPayment.UNPAID, dueAmount: 0 },
+      }),
+      ...(row ? [this.prisma.payment.create({ data: row })] : []),
+    ]);
+    return updated;
   }
 
   async addCost(id: string, dto: AddCostDto) {
