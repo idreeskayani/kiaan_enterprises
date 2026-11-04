@@ -54,6 +54,6 @@ export class UpdateCostPaymentDto extends PaymentInfoDto {
 // Save the customer's remaining-dues statement: DRAFT = kept for later, SENT = shared with the customer
 export class SaveDuesReportDto {
   @IsOptional() @IsIn(['DRAFT', 'SENT']) status?: 'DRAFT' | 'SENT';
-  // DUES (default) = remaining dues only, ALL = every issued invoice
-  @IsOptional() @IsIn(['DUES', 'ALL']) scope?: 'DUES' | 'ALL';
+  // which invoices the report lists (DUES by default)
+  @IsOptional() @IsIn(['ALL', 'DUES', 'UNPAID', 'PAID', 'DRAFT']) scope?: 'ALL' | 'DUES' | 'UNPAID' | 'PAID' | 'DRAFT';
 }

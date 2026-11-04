@@ -19,6 +19,8 @@ import { RolesGuard } from '../auth/roles.guard.js';
 import { CreateShipmentDto } from '../shipments/dto.js';
 import { AddCostDto, SaveDuesReportDto, UpdateCostPaymentDto, UpdateInvoiceStatusDto } from './dto.js';
 import { InvoicesService } from './invoices.service.js';
+import { DUES_SCOPES } from './dues-pdf.js';
+import type { DuesScope } from './dues-pdf.js';
 
 @Controller('invoices')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -81,7 +83,7 @@ export class InvoicesController {
     @Param('customerId', ParseUUIDPipe) customerId: string,
     @Query('scope') scope?: string,
   ) {
-    const { buffer, filename } = await this.invoices.duesPdf(customerId, scope === 'ALL' ? 'ALL' : 'DUES');
+    const { buffer, filename } = await this.invoices.duesPdf(customerId, DUES_SCOPES.includes(scope as DuesScope) ? (scope as DuesScope) : 'DUES');
     return new StreamableFile(buffer, {
       type: 'application/pdf',
       disposition: `inline; filename="${filename}"`,

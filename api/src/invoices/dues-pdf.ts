@@ -1,7 +1,19 @@
 import PDFDocument from 'pdfkit';
 import { BOTTOM_RATIO, COMPANY, TOP_RATIO, asset, fmtDate, inWords, money } from './invoice-pdf.js';
 
-// One unpaid / part-paid invoice on the statement.
+// Which invoices a statement lists: the same choices as the filters on the Invoices page.
+export type DuesScope = 'ALL' | 'DUES' | 'UNPAID' | 'PAID' | 'DRAFT';
+export const DUES_SCOPES: DuesScope[] = ['ALL', 'DUES', 'UNPAID', 'PAID', 'DRAFT'];
+
+const TITLES: Record<DuesScope, string> = {
+  ALL: 'ALL INVOICES',
+  DUES: 'REMAINING DUES',
+  UNPAID: 'UNPAID INVOICES',
+  PAID: 'PAID INVOICES',
+  DRAFT: 'DRAFT INVOICES',
+};
+
+// One invoice on the statement.
 export type DuesItem = {
   invoiceNo: string;
   issuedAt: Date | string;
@@ -10,11 +22,11 @@ export type DuesItem = {
   total: number;
   paid: number;
   remaining: number;
-  status?: 'Paid' | 'Partial' | 'Unpaid'; // missing on reports saved before this field existed
+  status?: 'Paid' | 'Partial' | 'Unpaid' | 'Draft'; // missing on reports saved before this field existed
 };
 
 export type DuesData = {
-  scope?: 'DUES' | 'ALL'; // DUES (default) = only what is still owed, ALL = every issued invoice
+  scope?: DuesScope; // missing on reports saved before scopes existed (those are DUES)
   customer: { name: string; address?: string | null; phone?: string | null; taxNumber?: string | null };
   items: DuesItem[];
   totalInvoiced: number;
@@ -95,10 +107,10 @@ export function buildDuesPdf(data: PdfDues): Promise<Buffer> {
 
     let y = (topImg ? W * TOP_RATIO : 80) + 8;
     const c = data.customer;
-    const all = data.scope === 'ALL';
+    const scope: DuesScope = data.scope ?? 'DUES';
 
     // ---- title bar
-    cell(L, y, FULL, 26, all ? 'STATEMENT OF ACCOUNT - ALL INVOICES' : 'STATEMENT OF ACCOUNT - REMAINING DUES', { bold: true, size: 14, align: 'center' });
+    cell(L, y, FULL, 26, `STATEMENT OF ACCOUNT - ${TITLES[scope]}`, { bold: true, size: 14, align: 'center' });
     y += 26;
 
     // ---- customer (left) and statement details (right)
@@ -125,7 +137,7 @@ export function buildDuesPdf(data: PdfDues): Promise<Buffer> {
       ['Statement Date', fmtDate(data.date)],
       ['Statement No.', data.reportNo ?? '-'],
       ['Currency', 'PKR'],
-      [all ? 'Invoices' : 'Open Invoices', String(data.items.length)],
+      [scope === 'DUES' ? 'Open Invoices' : 'Invoices', String(data.items.length)],
     ];
     const rh = BOX_H / rows.length;
     rows.forEach(([k, v], i) => {
@@ -193,9 +205,10 @@ export function buildDuesPdf(data: PdfDues): Promise<Buffer> {
     y += 18 + 10;
 
     // ---- amount in words
-    const whole = Math.floor(data.totalRemaining + 1e-9);
-    const paisa = Math.round((data.totalRemaining - whole) * 100);
-    const words = `Total remaining dues: PKR ${inWords(whole)}${paisa ? ` and ${inWords(paisa)} Paisa` : ''} Only`;
+    const amount = scope === 'PAID' ? data.totalPaid : data.totalRemaining;
+    const whole = Math.floor(amount + 1e-9);
+    const paisa = Math.round((amount - whole) * 100);
+    const words = `${scope === 'PAID' ? 'Total received' : 'Total remaining dues'}: PKR ${inWords(whole)}${paisa ? ` and ${inWords(paisa)} Paisa` : ''} Only`;
     ensure(24);
     doc.font('Helvetica-Bold').fontSize(9).fillColor('#000').text(words, L, y, { width: FULL });
     y = doc.y + 12;

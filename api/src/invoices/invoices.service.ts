@@ -19,7 +19,7 @@ import type { AddCostDto, PaymentInfoDto } from './dto.js';
 import { ShipmentsService } from '../shipments/shipments.service.js';
 import { buildInvoicePdf } from './invoice-pdf.js';
 import { buildDuesPdf } from './dues-pdf.js';
-import type { DuesData, DuesItem } from './dues-pdf.js';
+import type { DuesData, DuesItem, DuesScope } from './dues-pdf.js';
 import type { PdfInvoice } from './invoice-pdf.js';
 
 @Injectable()
@@ -547,14 +547,21 @@ export class InvoicesService {
 
   // ---- remaining dues statement (customer ledger)
   // Issued invoices that are not fully paid. Drafts, paid and cancelled invoices are left out.
-  private async duesFor(customerId: string, scope: 'DUES' | 'ALL' = 'DUES'): Promise<DuesData> {
+  private async duesFor(customerId: string, scope: DuesScope = 'DUES'): Promise<DuesData> {
     const customer = await this.prisma.customer.findUnique({ where: { id: customerId } });
     if (!customer) throw new NotFoundException('Customer not found');
 
     const invoices = await this.prisma.invoice.findMany({
       where: {
-        // ALL also lists the fully paid ones; drafts and cancelled invoices are never on a statement
-        status: scope === 'ALL' ? { in: [InvoiceStatus.ISSUED, InvoiceStatus.PAID] } : InvoiceStatus.ISSUED,
+        // ALL = issued + paid. DUES / UNPAID = issued. PAID and DRAFT = just those. Cancelled are never listed.
+        status:
+          scope === 'ALL'
+            ? { in: [InvoiceStatus.ISSUED, InvoiceStatus.PAID] }
+            : scope === 'PAID'
+              ? InvoiceStatus.PAID
+              : scope === 'DRAFT'
+                ? InvoiceStatus.DRAFT
+                : InvoiceStatus.ISSUED,
         OR: [{ customerId }, { shipment: { customerId } }],
       },
       include: { shipment: { select: { blAwbNo: true, hawbNo: true } } },
@@ -562,10 +569,15 @@ export class InvoicesService {
     });
 
     const round = (n: number) => Math.round(n * 100) / 100;
-    const items: DuesItem[] = invoices.map((r) => {
+    const allItems: DuesItem[] = invoices.map((r) => {
       const total = Number(r.total);
+      const isDraft = r.status === InvoiceStatus.DRAFT;
       const remaining =
-        r.status === InvoiceStatus.PAID ? 0 : Number(r.dueAmount) > 0 ? Number(r.dueAmount) : total;
+        r.status === InvoiceStatus.PAID
+          ? 0
+          : !isDraft && Number(r.dueAmount) > 0
+            ? Number(r.dueAmount)
+            : total;
       const d = (r.details ?? {}) as { blAwbNo?: string; hawbNo?: string };
       return {
         invoiceNo: r.invoiceNo,
@@ -575,9 +587,12 @@ export class InvoicesService {
         total: round(total),
         paid: round(total - remaining),
         remaining: round(remaining),
-        status: remaining <= 0 ? 'Paid' : remaining < total ? 'Partial' : 'Unpaid',
+        status: isDraft ? 'Draft' : remaining <= 0 ? 'Paid' : remaining < total ? 'Partial' : 'Unpaid',
       };
     });
+    // UNPAID = nothing received yet (part-paid ones are in DUES)
+    const listed = scope === 'UNPAID' ? allItems.filter((i) => i.status === 'Unpaid') : allItems;
+    const items = listed;
     const sum = (f: (i: DuesItem) => number) => round(items.reduce((a, i) => a + f(i), 0));
     return {
       scope,
@@ -599,10 +614,10 @@ export class InvoicesService {
   }
 
   // "View report": built from today's figures, nothing is saved.
-  async duesPdf(customerId: string, scope: 'DUES' | 'ALL' = 'DUES') {
+  async duesPdf(customerId: string, scope: DuesScope = 'DUES') {
     const data = await this.duesFor(customerId, scope);
     const buffer = await buildDuesPdf({ ...data, date: new Date() });
-    const kind = scope === 'ALL' ? 'Statement' : 'Dues statement';
+    const kind = scope === 'DUES' ? 'Dues statement' : 'Statement';
     return { buffer, filename: `${kind} - ${this.safeName(data.customer.name)}.pdf` };
   }
 
@@ -621,12 +636,12 @@ export class InvoicesService {
   async saveDuesReport(
     customerId: string,
     status: 'DRAFT' | 'SENT' = 'DRAFT',
-    scope: 'DUES' | 'ALL' = 'DUES',
+    scope: DuesScope = 'DUES',
   ) {
     const data = await this.duesFor(customerId, scope);
     if (data.items.length === 0) {
       throw new BadRequestException(
-        scope === 'ALL' ? 'This customer has no issued invoices' : 'This customer has no remaining dues',
+        scope === 'DUES' ? 'This customer has no remaining dues' : 'This customer has no invoices for this report',
       );
     }
     const reportNo = await this.nextDuesReportNo();

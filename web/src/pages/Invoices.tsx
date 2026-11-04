@@ -54,18 +54,20 @@ export default function Invoices() {
 
   // the report is made for one customer: the typed name must match a customer from the list
   const isDues = payment === 'DUES';
-  // reports are offered on "All invoices" (every invoice with its status) and on "Remaining dues"
-  const reportable = payment === '' || isDues;
-  const scope = isDues ? 'DUES' : 'ALL';
-  const scopeQs = scope === 'ALL' ? '?scope=ALL' : '';
+  // the report lists whatever the filter shows (All, Draft, Unpaid, Remaining dues, Paid) for the chosen customer
+  const scope = payment || 'ALL';
+  const scopeQs = `?scope=${scope}`;
+  const scopeLabel: Record<string, string> = {
+    ALL: 'All invoices', DRAFT: 'Draft', UNPAID: 'Unpaid', DUES: 'Remaining dues', PAID: 'Paid',
+  };
   const selected = customers.find(
     (c) => c.name.trim().toLowerCase() === customer.trim().toLowerCase(),
   );
   // the search is a partial match, so with a chosen customer only that customer's invoices are counted
-  const shown = reportable && selected ? rows.filter((r) => r.customerName === selected.name) : rows;
+  const shown = selected ? rows.filter((r) => r.customerName === selected.name) : rows;
   const totalRemaining = shown.reduce((a, r) => a + Number(r.remaining ?? 0), 0);
   const totalProfit = shown.reduce((a, r) => a + Number(r.profit ?? 0), 0);
-  const canReport = reportable && !!selected && shown.length > 0;
+  const canReport = !!selected && shown.length > 0;
 
   async function loadReports() {
     if (!selected) return;
@@ -76,7 +78,7 @@ export default function Invoices() {
     }
   }
   useEffect(() => {
-    if (!reportable || !selected) return;
+    if (!selected) return;
     let alive = true;
     api(`/invoices/dues/${selected.id}/reports`)
       .then((r) => alive && setReports(r))
@@ -85,7 +87,7 @@ export default function Invoices() {
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reportable, selected?.id]);
+  }, [selected?.id]);
 
   async function saveReport(status: 'DRAFT' | 'SENT') {
     if (!selected) return;
@@ -334,82 +336,79 @@ export default function Invoices() {
         </table>
       </div>
 
-      {reportable && (
-        <div className="card">
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-            <button className="ghost" disabled={!canReport || reportBusy} onClick={() => saveReport('DRAFT')}>
-              Save draft
-            </button>
-            <button
-              className="ghost"
-              disabled={!canReport}
-              onClick={() => selected && viewReport(`/invoices/dues/${selected.id}/pdf${scopeQs}`)}
-            >
-              View report
-            </button>
-            {canReport && selected ? (
-              <ShareButton
-                path={`/invoices/dues/${selected.id}/pdf${scopeQs}`}
-                invoiceNo={`SOA-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}`}
-                company="Kiaan Freight Services"
-                customer={selected.name}
-                total={totalRemaining}
-                label="Share report"
-                className=""
-                docLabel="statement"
-                onShared={reportShared}
-              />
-            ) : (
-              <button disabled>Share report</button>
-            )}
-          </div>
-          {!selected && (
-            <p className="muted" style={{ margin: '10px 0 0' }}>
-              Choose the customer from the search list to make a report of their invoices.
-            </p>
-          )}
-          {selected && shown.length === 0 && (
-            <p className="muted" style={{ margin: '10px 0 0' }}>
-              {scope === 'ALL' ? 'This customer has no invoices.' : 'This customer has no remaining dues.'}
-            </p>
-          )}
-          {reportNote && reportNote.id === selected?.id && (
-            <p className="muted" style={{ margin: '10px 0 0' }}>{reportNote.text}</p>
-          )}
-
-          {selected && reports.some((x) => x.customerId === selected.id) && (
-            <table style={{ marginTop: 14 }}>
-              <thead>
-                <tr>
-                  <th>Saved reports</th>
-                  <th>Type</th>
-                  <th>Status</th>
-                  <th>Date</th>
-                  <th className="num">Remaining (PKR)</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {reports.filter((x) => x.customerId === selected?.id).map((rep) => (
-                  <tr key={rep.id}>
-                    <td>{rep.reportNo}</td>
-                    <td>{rep.scope === 'ALL' ? 'All invoices' : 'Remaining dues'}</td>
-                    <td>{rep.status === 'SENT' ? 'Sent' : 'Draft'}</td>
-                    <td>{new Date(rep.createdAt).toLocaleDateString()}</td>
-                    <td className="num">{fmt(rep.totalDue)}</td>
-                    <td>
-                      <button className="ghost small" onClick={() => viewReport(`/invoices/dues-reports/${rep.id}/pdf`)}>
-                        View
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+      <div className="card">
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+          <button className="ghost" disabled={!canReport || reportBusy} onClick={() => saveReport('DRAFT')}>
+            Save draft
+          </button>
+          <button
+            className="ghost"
+            disabled={!canReport}
+            onClick={() => selected && viewReport(`/invoices/dues/${selected.id}/pdf${scopeQs}`)}
+          >
+            View report
+          </button>
+          {canReport && selected ? (
+            <ShareButton
+              path={`/invoices/dues/${selected.id}/pdf${scopeQs}`}
+              invoiceNo={`SOA-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}`}
+              company="Kiaan Freight Services"
+              customer={selected.name}
+              total={totalRemaining}
+              label="Share report"
+              className=""
+              docLabel="statement"
+              onShared={reportShared}
+            />
+          ) : (
+            <button disabled>Share report</button>
           )}
         </div>
-      )}
+        {!selected && (
+          <p className="muted" style={{ margin: '10px 0 0' }}>
+            Choose the customer from the search list to make a report of their invoices.
+          </p>
+        )}
+        {selected && shown.length === 0 && (
+          <p className="muted" style={{ margin: '10px 0 0' }}>
+            {scope === 'DUES' ? 'This customer has no remaining dues.' : 'No invoices to report for this filter.'}
+          </p>
+        )}
+        {reportNote && reportNote.id === selected?.id && (
+          <p className="muted" style={{ margin: '10px 0 0' }}>{reportNote.text}</p>
+        )}
 
+        {selected && reports.some((x) => x.customerId === selected.id) && (
+          <table style={{ marginTop: 14 }}>
+            <thead>
+              <tr>
+                <th>Saved reports</th>
+                <th>Type</th>
+                <th>Status</th>
+                <th>Date</th>
+                <th className="num">Remaining (PKR)</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {reports.filter((x) => x.customerId === selected?.id).map((rep) => (
+                <tr key={rep.id}>
+                  <td>{rep.reportNo}</td>
+                  <td>{scopeLabel[rep.scope] ?? 'Remaining dues'}</td>
+                  <td>{rep.status === 'SENT' ? 'Sent' : 'Draft'}</td>
+                  <td>{new Date(rep.createdAt).toLocaleDateString()}</td>
+                  <td className="num">{fmt(rep.totalDue)}</td>
+                  <td>
+                    <button className="ghost small" onClick={() => viewReport(`/invoices/dues-reports/${rep.id}/pdf`)}>
+                      View
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
       {costsFor && (
         <CostsModal invoice={costsFor} onClose={() => setCostsFor(null)} onChanged={load} />
       )}
