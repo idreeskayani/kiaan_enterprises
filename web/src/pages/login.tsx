@@ -69,7 +69,7 @@ export default function Login() {
       <form className="lg-card" onSubmit={submit}>
         <div className="lg-brand">
           <img className="lg-logo" src="/images/kiaan-logo.png" alt="Kiaan Freight Services" />
-          <p>Freight · Clearance · Logistics · TNI Enterprises</p>
+          <p>Freight · Clearance · Logistics </p>
         </div>
         {error && <div className="error">{error}</div>}
         <div className="lg-field">

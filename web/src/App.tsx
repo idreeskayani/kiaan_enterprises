@@ -62,9 +62,9 @@ function Layout() {
             <img
               className="brand-logo"
               src={agent ? '/images/tni-logo.png' : '/images/kiaan-mark.png'}
-              alt={agent ? 'TNI Enterprises' : 'Kiaan Enterprises'}
+              alt={agent ? 'TNI Enterprises' : 'Kiaan Freight Services'}
             />
-            {agent ? 'TNI Enterprises' : 'Kiaan Enterprises'}
+            {agent ? 'TNI Enterprises' : 'Kiaan Freight Services'}
           </h2>
           <button type="button" className="icon-btn" onClick={toggleMenu} title="Hide menu" aria-label="Hide menu">«</button>
         </div>
