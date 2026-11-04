@@ -244,6 +244,8 @@ model DuesReport {
   customerId  String
   customer    Customer         @relation(fields: [customerId], references: [id], onDelete: Cascade)
   status      DuesReportStatus @default(DRAFT)
+  // DUES = only invoices still owed, ALL = every issued invoice (paid, part-paid, unpaid)
+  scope       String           @default("DUES")
   totalDue    Decimal          @db.Decimal(14, 2)
   invoiceCount Int
   snapshot    Json

@@ -547,13 +547,14 @@ export class InvoicesService {
 
   // ---- remaining dues statement (customer ledger)
   // Issued invoices that are not fully paid. Drafts, paid and cancelled invoices are left out.
-  private async duesFor(customerId: string): Promise<DuesData> {
+  private async duesFor(customerId: string, scope: 'DUES' | 'ALL' = 'DUES'): Promise<DuesData> {
     const customer = await this.prisma.customer.findUnique({ where: { id: customerId } });
     if (!customer) throw new NotFoundException('Customer not found');
 
     const invoices = await this.prisma.invoice.findMany({
       where: {
-        status: InvoiceStatus.ISSUED,
+        // ALL also lists the fully paid ones; drafts and cancelled invoices are never on a statement
+        status: scope === 'ALL' ? { in: [InvoiceStatus.ISSUED, InvoiceStatus.PAID] } : InvoiceStatus.ISSUED,
         OR: [{ customerId }, { shipment: { customerId } }],
       },
       include: { shipment: { select: { blAwbNo: true, hawbNo: true } } },
@@ -563,7 +564,8 @@ export class InvoicesService {
     const round = (n: number) => Math.round(n * 100) / 100;
     const items: DuesItem[] = invoices.map((r) => {
       const total = Number(r.total);
-      const remaining = Number(r.dueAmount) > 0 ? Number(r.dueAmount) : total;
+      const remaining =
+        r.status === InvoiceStatus.PAID ? 0 : Number(r.dueAmount) > 0 ? Number(r.dueAmount) : total;
       const d = (r.details ?? {}) as { blAwbNo?: string; hawbNo?: string };
       return {
         invoiceNo: r.invoiceNo,
@@ -573,10 +575,12 @@ export class InvoicesService {
         total: round(total),
         paid: round(total - remaining),
         remaining: round(remaining),
+        status: remaining <= 0 ? 'Paid' : remaining < total ? 'Partial' : 'Unpaid',
       };
     });
     const sum = (f: (i: DuesItem) => number) => round(items.reduce((a, i) => a + f(i), 0));
     return {
+      scope,
       customer: {
         name: customer.name,
         address: customer.address,
@@ -595,10 +599,11 @@ export class InvoicesService {
   }
 
   // "View report": built from today's figures, nothing is saved.
-  async duesPdf(customerId: string) {
-    const data = await this.duesFor(customerId);
+  async duesPdf(customerId: string, scope: 'DUES' | 'ALL' = 'DUES') {
+    const data = await this.duesFor(customerId, scope);
     const buffer = await buildDuesPdf({ ...data, date: new Date() });
-    return { buffer, filename: `Dues statement - ${this.safeName(data.customer.name)}.pdf` };
+    const kind = scope === 'ALL' ? 'Statement' : 'Dues statement';
+    return { buffer, filename: `${kind} - ${this.safeName(data.customer.name)}.pdf` };
   }
 
   private async nextDuesReportNo() {
@@ -613,20 +618,29 @@ export class InvoicesService {
   }
 
   // "Save draft" (DRAFT) or a copy of what was shared (SENT). The figures are frozen in the snapshot.
-  async saveDuesReport(customerId: string, status: 'DRAFT' | 'SENT' = 'DRAFT') {
-    const data = await this.duesFor(customerId);
-    if (data.items.length === 0) throw new BadRequestException('This customer has no remaining dues');
+  async saveDuesReport(
+    customerId: string,
+    status: 'DRAFT' | 'SENT' = 'DRAFT',
+    scope: 'DUES' | 'ALL' = 'DUES',
+  ) {
+    const data = await this.duesFor(customerId, scope);
+    if (data.items.length === 0) {
+      throw new BadRequestException(
+        scope === 'ALL' ? 'This customer has no issued invoices' : 'This customer has no remaining dues',
+      );
+    }
     const reportNo = await this.nextDuesReportNo();
     return this.prisma.duesReport.create({
       data: {
         reportNo,
         customerId,
+        scope,
         status: status === 'SENT' ? DuesReportStatus.SENT : DuesReportStatus.DRAFT,
         totalDue: data.totalRemaining,
         invoiceCount: data.items.length,
         snapshot: JSON.parse(JSON.stringify(data)) as Prisma.InputJsonValue,
       },
-      select: { id: true, reportNo: true, customerId: true, status: true, totalDue: true, invoiceCount: true, createdAt: true },
+      select: { id: true, reportNo: true, customerId: true, scope: true, status: true, totalDue: true, invoiceCount: true, createdAt: true },
     });
   }
 
@@ -635,7 +649,7 @@ export class InvoicesService {
       where: { customerId },
       orderBy: { createdAt: 'desc' },
       take: 20,
-      select: { id: true, reportNo: true, customerId: true, status: true, totalDue: true, invoiceCount: true, createdAt: true },
+      select: { id: true, reportNo: true, customerId: true, scope: true, status: true, totalDue: true, invoiceCount: true, createdAt: true },
     });
   }
 

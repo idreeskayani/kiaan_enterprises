@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "DuesReport" ADD COLUMN "scope" TEXT NOT NULL DEFAULT 'DUES';

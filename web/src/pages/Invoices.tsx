@@ -54,14 +54,18 @@ export default function Invoices() {
 
   // the report is made for one customer: the typed name must match a customer from the list
   const isDues = payment === 'DUES';
+  // reports are offered on "All invoices" (every invoice with its status) and on "Remaining dues"
+  const reportable = payment === '' || isDues;
+  const scope = isDues ? 'DUES' : 'ALL';
+  const scopeQs = scope === 'ALL' ? '?scope=ALL' : '';
   const selected = customers.find(
     (c) => c.name.trim().toLowerCase() === customer.trim().toLowerCase(),
   );
   // the search is a partial match, so with a chosen customer only that customer's invoices are counted
-  const shown = isDues && selected ? rows.filter((r) => r.customerName === selected.name) : rows;
+  const shown = reportable && selected ? rows.filter((r) => r.customerName === selected.name) : rows;
   const totalRemaining = shown.reduce((a, r) => a + Number(r.remaining ?? 0), 0);
   const totalProfit = shown.reduce((a, r) => a + Number(r.profit ?? 0), 0);
-  const canReport = isDues && !!selected && shown.length > 0;
+  const canReport = reportable && !!selected && shown.length > 0;
 
   async function loadReports() {
     if (!selected) return;
@@ -72,7 +76,7 @@ export default function Invoices() {
     }
   }
   useEffect(() => {
-    if (!isDues || !selected) return;
+    if (!reportable || !selected) return;
     let alive = true;
     api(`/invoices/dues/${selected.id}/reports`)
       .then((r) => alive && setReports(r))
@@ -81,14 +85,14 @@ export default function Invoices() {
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isDues, selected?.id]);
+  }, [reportable, selected?.id]);
 
   async function saveReport(status: 'DRAFT' | 'SENT') {
     if (!selected) return;
     setError('');
     setReportBusy(true);
     try {
-      const r = await api(`/invoices/dues/${selected.id}/report`, { method: 'POST', body: { status } });
+      const r = await api(`/invoices/dues/${selected.id}/report`, { method: 'POST', body: { status, scope } });
       if (status === 'DRAFT') setReportNote({ id: selected.id, text: `Draft saved as ${r.reportNo}` });
       await loadReports();
     } catch (e) {
@@ -330,7 +334,7 @@ export default function Invoices() {
         </table>
       </div>
 
-      {isDues && (
+      {reportable && (
         <div className="card">
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
             <button className="ghost" disabled={!canReport || reportBusy} onClick={() => saveReport('DRAFT')}>
@@ -339,13 +343,13 @@ export default function Invoices() {
             <button
               className="ghost"
               disabled={!canReport}
-              onClick={() => selected && viewReport(`/invoices/dues/${selected.id}/pdf`)}
+              onClick={() => selected && viewReport(`/invoices/dues/${selected.id}/pdf${scopeQs}`)}
             >
               View report
             </button>
             {canReport && selected ? (
               <ShareButton
-                path={`/invoices/dues/${selected.id}/pdf`}
+                path={`/invoices/dues/${selected.id}/pdf${scopeQs}`}
                 invoiceNo={`SOA-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}`}
                 company="Kiaan Freight Services"
                 customer={selected.name}
@@ -361,11 +365,13 @@ export default function Invoices() {
           </div>
           {!selected && (
             <p className="muted" style={{ margin: '10px 0 0' }}>
-              Choose the customer from the search list to make a report of their remaining dues.
+              Choose the customer from the search list to make a report of their invoices.
             </p>
           )}
           {selected && shown.length === 0 && (
-            <p className="muted" style={{ margin: '10px 0 0' }}>This customer has no remaining dues.</p>
+            <p className="muted" style={{ margin: '10px 0 0' }}>
+              {scope === 'ALL' ? 'This customer has no invoices.' : 'This customer has no remaining dues.'}
+            </p>
           )}
           {reportNote && reportNote.id === selected?.id && (
             <p className="muted" style={{ margin: '10px 0 0' }}>{reportNote.text}</p>
@@ -376,6 +382,7 @@ export default function Invoices() {
               <thead>
                 <tr>
                   <th>Saved reports</th>
+                  <th>Type</th>
                   <th>Status</th>
                   <th>Date</th>
                   <th className="num">Remaining (PKR)</th>
@@ -386,6 +393,7 @@ export default function Invoices() {
                 {reports.filter((x) => x.customerId === selected?.id).map((rep) => (
                   <tr key={rep.id}>
                     <td>{rep.reportNo}</td>
+                    <td>{rep.scope === 'ALL' ? 'All invoices' : 'Remaining dues'}</td>
                     <td>{rep.status === 'SENT' ? 'Sent' : 'Draft'}</td>
                     <td>{new Date(rep.createdAt).toLocaleDateString()}</td>
                     <td className="num">{fmt(rep.totalDue)}</td>

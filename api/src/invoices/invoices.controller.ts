@@ -77,8 +77,11 @@ export class InvoicesController {
 
   // ---- remaining dues statement of one customer (declared before ':id' routes)
   @Get('dues/:customerId/pdf')
-  async duesPdf(@Param('customerId', ParseUUIDPipe) customerId: string) {
-    const { buffer, filename } = await this.invoices.duesPdf(customerId);
+  async duesPdf(
+    @Param('customerId', ParseUUIDPipe) customerId: string,
+    @Query('scope') scope?: string,
+  ) {
+    const { buffer, filename } = await this.invoices.duesPdf(customerId, scope === 'ALL' ? 'ALL' : 'DUES');
     return new StreamableFile(buffer, {
       type: 'application/pdf',
       disposition: `inline; filename="${filename}"`,
@@ -95,7 +98,7 @@ export class InvoicesController {
     @Param('customerId', ParseUUIDPipe) customerId: string,
     @Body() dto: SaveDuesReportDto,
   ) {
-    return this.invoices.saveDuesReport(customerId, dto.status);
+    return this.invoices.saveDuesReport(customerId, dto.status, dto.scope);
   }
 
   @Get('dues-reports/:reportId/pdf')

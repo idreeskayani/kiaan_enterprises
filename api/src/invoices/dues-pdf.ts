@@ -10,9 +10,11 @@ export type DuesItem = {
   total: number;
   paid: number;
   remaining: number;
+  status?: 'Paid' | 'Partial' | 'Unpaid'; // missing on reports saved before this field existed
 };
 
 export type DuesData = {
+  scope?: 'DUES' | 'ALL'; // DUES (default) = only what is still owed, ALL = every issued invoice
   customer: { name: string; address?: string | null; phone?: string | null; taxNumber?: string | null };
   items: DuesItem[];
   totalInvoiced: number;
@@ -93,9 +95,10 @@ export function buildDuesPdf(data: PdfDues): Promise<Buffer> {
 
     let y = (topImg ? W * TOP_RATIO : 80) + 8;
     const c = data.customer;
+    const all = data.scope === 'ALL';
 
     // ---- title bar
-    cell(L, y, FULL, 26, 'STATEMENT OF ACCOUNT - REMAINING DUES', { bold: true, size: 14, align: 'center' });
+    cell(L, y, FULL, 26, all ? 'STATEMENT OF ACCOUNT - ALL INVOICES' : 'STATEMENT OF ACCOUNT - REMAINING DUES', { bold: true, size: 14, align: 'center' });
     y += 26;
 
     // ---- customer (left) and statement details (right)
@@ -122,7 +125,7 @@ export function buildDuesPdf(data: PdfDues): Promise<Buffer> {
       ['Statement Date', fmtDate(data.date)],
       ['Statement No.', data.reportNo ?? '-'],
       ['Currency', 'PKR'],
-      ['Open Invoices', String(data.items.length)],
+      [all ? 'Invoices' : 'Open Invoices', String(data.items.length)],
     ];
     const rh = BOX_H / rows.length;
     rows.forEach(([k, v], i) => {
@@ -167,7 +170,7 @@ export function buildDuesPdf(data: PdfDues): Promise<Buffer> {
         money(it.total),
         money(it.paid),
         money(it.remaining),
-        it.paid > 0 ? 'Partial' : 'Unpaid',
+        it.status ?? (it.paid > 0 ? 'Partial' : 'Unpaid'),
       ];
       let x = L;
       vals.forEach((v, k) => {
