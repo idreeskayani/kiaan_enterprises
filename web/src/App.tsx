@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import Dashboard from './pages/Dashboard';
 import ExchangeRates from './pages/ExchangeRates';
 import Invoices from './pages/Invoices';
+import Debits from './pages/Debits';
 import Login from './pages/login';
 import NewShipment from './pages/NewShipment';
 import ShipmentDetail from './pages/ShipmentDetail';
@@ -58,10 +59,11 @@ function Layout() {
       <aside>
         <div className="side-head">
           <h2 className="brand">
-            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#60a5fa" strokeWidth="1.8" strokeLinejoin="round">
-              <path d="M12 2 3 7v10l9 5 9-5V7z" />
-              <path d="M3 7l9 5 9-5M12 12v10" />
-            </svg>
+            <img
+              className="brand-logo"
+              src={agent ? '/images/tni-logo.png' : '/images/kiaan-mark.png'}
+              alt={agent ? 'TNI Enterprises' : 'Kiaan Enterprises'}
+            />
             {agent ? 'TNI Enterprises' : 'Kiaan Enterprises'}
           </h2>
           <button type="button" className="icon-btn" onClick={toggleMenu} title="Hide menu" aria-label="Hide menu">«</button>
@@ -81,6 +83,7 @@ function Layout() {
             <NavLink to="/quotations">Quotations</NavLink>
             {freightStaff && <NavLink to="/shipments/new">Create new</NavLink>}
             <NavLink to="/invoices">Invoices</NavLink>
+            <NavLink to="/debits">Debits</NavLink>
             <NavLink to="/rates">Exchange rates</NavLink>
           </>
         )}
@@ -153,6 +156,7 @@ export default function App() {
           <Route path="shipments/new" element={<NewShipment />} />
           <Route path="shipments/:id" element={<ShipmentDetail />} />
           <Route path="invoices" element={<Invoices />} />
+          <Route path="debits" element={<Debits />} />
           <Route path="invoices/:id/edit" element={<NewShipment />} />
           <Route path="rates" element={<ExchangeRates />} />
 

@@ -68,14 +68,8 @@ export default function Login() {
 
       <form className="lg-card" onSubmit={submit}>
         <div className="lg-brand">
-          <svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="#1d4ed8" strokeWidth="1.8" strokeLinejoin="round">
-            <path d="M12 2 3 7v10l9 5 9-5V7z" />
-            <path d="M3 7l9 5 9-5M12 12v10" />
-          </svg>
-          <div>
-            <h1>Kiaan Enterprises</h1>
-            <p>Freight · Clearance · Logistics · TNI Enterprises</p>
-          </div>
+          <img className="lg-logo" src="/images/kiaan-logo.png" alt="Kiaan Freight Services" />
+          <p>Freight · Clearance · Logistics · TNI Enterprises</p>
         </div>
         {error && <div className="error">{error}</div>}
         <div className="lg-field">

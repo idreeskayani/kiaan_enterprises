@@ -29,3 +29,10 @@ export class AddCostDto {
   @IsOptional() @IsString() @MaxLength(300) note?: string;
   @IsOptional() @IsDateString() incurredAt?: string;
 }
+
+// Payment of a debit (what we owe a vendor). PARTIAL: dueAmount is what is still owed (PKR)
+export class UpdateCostPaymentDto {
+  @IsIn(['PAID', 'UNPAID', 'PARTIAL']) status: 'PAID' | 'UNPAID' | 'PARTIAL';
+
+  @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }) @IsPositive() dueAmount?: number;
+}

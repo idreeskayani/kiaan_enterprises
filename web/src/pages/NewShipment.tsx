@@ -10,6 +10,10 @@ const blank: Item = { lengthCm: '', widthCm: '', heightCm: '', weightKg: '', qty
 const num = (s: string) => Number(s) || 0;
 const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
 const NEW = '__new__';
+// Package sizes are saved in cm. The unit dropdown only changes what is typed; it is converted on save.
+const UNITS: Record<string, number> = { cm: 1, inch: 2.54, m: 100 };
+const SIZE_KEYS = ['lengthCm', 'widthCm', 'heightCm'] as const;
+const trim = (n: number) => String(Math.round(n * 10000) / 10000);
 const CURRENCIES = ['USD', 'GBP', 'EUR', 'AED', 'SAR', 'CNY', 'PKR'];
 
 const NAMES: Record<
@@ -90,6 +94,20 @@ function QuotationForm({ editId, editType }: { editId?: string; editType?: 'quot
   const [det, setDet] = useState<Record<string, string>>({ direction: 'IMPORT' });
   const [showMore, setShowMore] = useState(false);
   const [items, setItems] = useState<Item[]>([{ ...blank }]);
+  const [dimUnit, setDimUnit] = useState<'cm' | 'inch' | 'm'>('cm');
+
+  // switching the unit converts what is already typed, so the real size stays the same
+  function changeUnit(next: 'cm' | 'inch' | 'm') {
+    const k = UNITS[dimUnit] / UNITS[next];
+    setItems((list) =>
+      list.map((i) => {
+        const out = { ...i };
+        for (const f of SIZE_KEYS) if (num(i[f]) > 0) out[f] = trim(num(i[f]) * k);
+        return out;
+      }),
+    );
+    setDimUnit(next);
+  }
 
   const [quote, setQuote] = useState<any>(null);
   const [error, setError] = useState('');
@@ -214,6 +232,9 @@ function QuotationForm({ editId, editType }: { editId?: string; editType?: 'quot
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [matchedId]);
 
+  // typed size in the chosen unit -> cm (2 decimals, same as what is stored)
+  const toCm = (v: string) => Math.round(num(v) * UNITS[dimUnit] * 100) / 100;
+
   const itemsValid = items.every(
     (i) => num(i.lengthCm) > 0 && num(i.widthCm) > 0 && num(i.heightCm) > 0 && num(i.weightKg) > 0 && num(i.qty) >= 1,
   );
@@ -261,9 +282,9 @@ function QuotationForm({ editId, editType }: { editId?: string; editType?: 'quot
       })),
     details: Object.fromEntries(Object.entries(det).filter(([, v]) => v.trim())),
     items: items.map((i) => ({
-      lengthCm: num(i.lengthCm),
-      widthCm: num(i.widthCm),
-      heightCm: num(i.heightCm),
+      lengthCm: toCm(i.lengthCm),
+      widthCm: toCm(i.widthCm),
+      heightCm: toCm(i.heightCm),
       weightKg: num(i.weightKg),
       qty: Math.max(1, Math.floor(num(i.qty))),
     })),
@@ -817,12 +838,22 @@ function QuotationForm({ editId, editType }: { editId?: string; editType?: 'quot
       </div>
 
       <div className="card">
-        <h3>Packages (cm / kg)</h3>
+        <div className="row" style={{ alignItems: 'center', marginBottom: 10 }}>
+          <h3 style={{ margin: 0, flex: 3 }}>Packages ({dimUnit} / kg)</h3>
+          <div style={{ maxWidth: 160 }}>
+            <label>Dimension unit</label>
+            <select value={dimUnit} onChange={(e) => changeUnit(e.target.value as 'cm' | 'inch' | 'm')}>
+              <option value="cm">Centimetres (cm)</option>
+              <option value="inch">Inches (inch)</option>
+              <option value="m">Metres (m)</option>
+            </select>
+          </div>
+        </div>
         {items.map((it, idx) => (
           <div className="row" key={idx} style={{ marginBottom: 10 }}>
             {(['lengthCm', 'widthCm', 'heightCm', 'weightKg', 'qty'] as (keyof Item)[]).map((k) => (
               <div key={k}>
-                <label>{{ lengthCm: 'Length', widthCm: 'Width', heightCm: 'Height', weightKg: 'Weight', qty: 'Qty' }[k]}</label>
+                <label>{{ lengthCm: `Length (${dimUnit})`, widthCm: `Width (${dimUnit})`, heightCm: `Height (${dimUnit})`, weightKg: 'Weight (kg)', qty: 'Qty' }[k]}</label>
                 <input type="number" min="0" step="any" value={it[k]} onChange={(e) => setItem(idx, k, e.target.value)} />
               </div>
             ))}

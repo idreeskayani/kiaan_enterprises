@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from './api';
-import { fmt } from './components';
+import { Badge, fmt } from './components';
 
 const SUGGESTIONS = [
   'Airline / shipping line freight',
@@ -124,7 +124,7 @@ export default function CostsModal({
 
         <table style={{ marginTop: 14 }}>
           <thead>
-            <tr><th>Date</th><th>Cost for</th><th>Paid to</th><th className="num">Amount (PKR)</th><th></th></tr>
+            <tr><th>Date</th><th>Cost for</th><th>Paid to</th><th className="num">Amount (PKR)</th><th>Payment</th><th></th></tr>
           </thead>
           <tbody>
             {(data?.costs ?? []).map((c: any) => (
@@ -144,12 +144,16 @@ export default function CostsModal({
                   )}
                 </td>
                 <td>
+                  <Badge status={c.payment} />
+                  {c.payment === 'PARTIAL' && <span className="due">Remaining: {fmt(c.dueAmount)}</span>}
+                </td>
+                <td>
                   <button type="button" className="small" style={{ background: '#fee2e2', color: '#991b1b' }} onClick={() => remove(c)} title="Delete cost">✕</button>
                 </td>
               </tr>
             ))}
             {data && data.costs.length === 0 && (
-              <tr><td colSpan={5} className="muted">No costs added yet. Add what you paid for this invoice to see your profit.</td></tr>
+              <tr><td colSpan={6} className="muted">No costs added yet. Add what you paid for this invoice to see your profit.</td></tr>
             )}
           </tbody>
         </table>

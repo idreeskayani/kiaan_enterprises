@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { InvoiceStatus, Prisma, ShipmentStatus } from '@prisma/client';
+import { CostPayment, InvoiceStatus, Prisma, ShipmentStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { CreateShipmentDto } from '../shipments/dto.js';
 import type { AddCostDto } from './dto.js';
@@ -328,6 +328,54 @@ export class InvoicesService {
       profit: round(revenue - costTotal),
       margin: revenue > 0 ? round(((revenue - costTotal) / revenue) * 100) : 0,
     };
+  }
+
+  // All debits of all invoices. ?vendor= partial company name, ?payment= PAID | UNPAID | PARTIAL
+  async listCosts(vendor?: string, payment?: string) {
+    const where: Prisma.InvoiceCostWhereInput = {};
+    const name = vendor?.trim();
+    if (name) where.vendor = { contains: name, mode: 'insensitive' };
+    if (payment && payment in CostPayment) where.payment = payment as CostPayment;
+    const rows = await this.prisma.invoiceCost.findMany({
+      where,
+      include: {
+        invoice: {
+          select: {
+            invoiceNo: true,
+            customer: { select: { name: true } },
+            shipment: { select: { customer: { select: { name: true } } } },
+          },
+        },
+      },
+      orderBy: { incurredAt: 'desc' },
+    });
+    return rows.map(({ invoice, ...c }) => ({
+      ...c,
+      invoiceNo: invoice.invoiceNo,
+      customerName: invoice.customer?.name ?? invoice.shipment?.customer.name ?? '',
+    }));
+  }
+
+  // Same rules as invoice payments: PARTIAL needs the remaining amount, which must be below the cost.
+  async setCostPayment(costId: string, status: 'PAID' | 'UNPAID' | 'PARTIAL', dueAmount?: number) {
+    const cost = await this.prisma.invoiceCost.findUnique({ where: { id: costId } });
+    if (!cost) throw new NotFoundException('Cost not found');
+    if (status === 'PARTIAL') {
+      if (dueAmount == null) throw new BadRequestException('Enter the remaining dues amount');
+      if (dueAmount >= Number(cost.amount)) {
+        throw new BadRequestException(
+          'Remaining dues must be less than the cost amount. Use "Unpaid" if nothing has been paid.',
+        );
+      }
+      return this.prisma.invoiceCost.update({
+        where: { id: costId },
+        data: { payment: CostPayment.PARTIAL, dueAmount },
+      });
+    }
+    return this.prisma.invoiceCost.update({
+      where: { id: costId },
+      data: { payment: status === 'PAID' ? CostPayment.PAID : CostPayment.UNPAID, dueAmount: 0 },
+    });
   }
 
   async addCost(id: string, dto: AddCostDto) {

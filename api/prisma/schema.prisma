@@ -168,6 +168,12 @@ model InvoiceLine {
   exRate        Decimal? @db.Decimal(12, 4)
 }
 
+enum CostPayment {
+  UNPAID
+  PARTIAL
+  PAID
+}
+
 // Money spent to deliver an invoice (debit). Profit = invoice total - sum of costs.
 model InvoiceCost {
   id            String   @id @default(uuid())
@@ -181,8 +187,12 @@ model InvoiceCost {
   exRate        Decimal? @db.Decimal(12, 4)
   note          String?
   incurredAt    DateTime @default(now())
+  // whether WE have paid this vendor yet. dueAmount = still owed to the vendor (PKR) when PARTIAL
+  payment       CostPayment @default(UNPAID)
+  dueAmount     Decimal  @default(0) @db.Decimal(14, 2)
 
   @@index([invoiceId])
+  @@index([vendor])
 }
 
 model StatusHistory {

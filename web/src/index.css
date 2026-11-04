@@ -194,3 +194,6 @@ input, select { transition: border-color .15s, box-shadow .15s; }
 .cost-sum small { color: #6b7686; }
 .cost-sum .profit-pos { background: #e8f8ee; }
 .cost-sum .profit-neg { background: #fdeaea; }
+
+/* logos */
+aside .brand-logo { height: 38px; width: auto; max-width: 92px; object-fit: contain; background: #fff; border-radius: 8px; padding: 4px 6px; flex-shrink: 0; }

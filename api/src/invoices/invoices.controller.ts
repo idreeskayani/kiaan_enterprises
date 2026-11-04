@@ -17,7 +17,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { Roles } from '../auth/roles.decorator.js';
 import { RolesGuard } from '../auth/roles.guard.js';
 import { CreateShipmentDto } from '../shipments/dto.js';
-import { AddCostDto, UpdateInvoiceStatusDto } from './dto.js';
+import { AddCostDto, UpdateCostPaymentDto, UpdateInvoiceStatusDto } from './dto.js';
 import { InvoicesService } from './invoices.service.js';
 
 @Controller('invoices')
@@ -53,6 +53,20 @@ export class InvoicesController {
   @Get('summary')
   summary() {
     return this.invoices.summary();
+  }
+
+  // Debits of every invoice (declared before ':id' routes). ?vendor=<name>&payment=PAID|UNPAID|PARTIAL
+  @Get('costs')
+  allCosts(@Query('vendor') vendor?: string, @Query('payment') payment?: string) {
+    return this.invoices.listCosts(vendor, payment);
+  }
+
+  @Patch('costs/:costId/payment')
+  setCostPayment(
+    @Param('costId', ParseUUIDPipe) costId: string,
+    @Body() dto: UpdateCostPaymentDto,
+  ) {
+    return this.invoices.setCostPayment(costId, dto.status, dto.dueAmount);
   }
 
   @Get()

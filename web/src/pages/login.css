@@ -62,3 +62,5 @@
 @media (prefers-reduced-motion: reduce) {
   .lg-slide.active, .lg-caption-text, .lg-card { animation: none !important; }
 }
+.lg-logo { height: 54px; width: auto; max-width: 100%; object-fit: contain; }
+.lg-brand { flex-direction: column; align-items: flex-start; gap: 8px; }
