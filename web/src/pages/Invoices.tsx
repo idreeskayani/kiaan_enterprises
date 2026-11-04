@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { api, getUser, openPdf } from '../api';
 import { Badge, fmt } from '../components';
 import { ShareButton } from '../Share';
+import CostsModal from '../CostsModal';
 
 export default function Invoices() {
   const freightStaff = getUser()?.role === 'OPERATOR';
@@ -10,6 +11,7 @@ export default function Invoices() {
   const [customer, setCustomer] = useState('');
   const [customers, setCustomers] = useState<any[]>([]);
   const [rows, setRows] = useState<any[]>([]);
+  const [costsFor, setCostsFor] = useState<any>(null);
   const [error, setError] = useState('');
 
   // payment popup
@@ -137,6 +139,7 @@ export default function Invoices() {
               <th>Shipment</th>
               <th>Customer</th>
               <th className="num">Total</th>
+              <th className="num">Profit</th>
               <th>Payment</th>
               <th>Date</th>
               <th></th>
@@ -154,6 +157,16 @@ export default function Invoices() {
                   <td>{r.shipment ? <Link to={`/shipments/${r.shipmentId}`}>{r.shipment.refNo}</Link> : ''}</td>
                   <td>{r.customerName}</td>
                   <td className="num">{fmt(r.total)}</td>
+                  <td className="num" style={{ cursor: 'pointer' }} title="Costs & profit" onClick={() => setCostsFor(r)}>
+                    {Number(r.costTotal) > 0 ? (
+                      <>
+                        <b className={Number(r.profit) >= 0 ? 'profit-pos' : 'profit-neg'}>{fmt(r.profit)}</b>
+                        <span className="muted" style={{ display: 'block', fontSize: 12 }}>Cost {fmt(r.costTotal)}</span>
+                      </>
+                    ) : (
+                      <span className="muted">Add costs</span>
+                    )}
+                  </td>
                   <td>
                     <Badge status={paid ? 'PAID' : draft ? 'DRAFT' : partial ? 'PARTIAL' : 'UNPAID'} />
                     {partial && <span className="due">Remaining dues: PKR {fmt(dueNow)}</span>}
@@ -162,6 +175,10 @@ export default function Invoices() {
                   <td>
                     <div className="row" style={{ gap: 6 }}>
                       <button className="ghost small" onClick={() => act(() => openPdf(r.id))}>PDF</button>
+                      {freightStaff && !r.shipmentId && !paid && (
+                        <Link to={`/invoices/${r.id}/edit`}><button className="ghost small">Edit</button></Link>
+                      )}
+                      <button className="ghost small" onClick={() => setCostsFor(r)}>Costs</button>
                       <ShareButton path={`/invoices/${r.id}/pdf`} invoiceNo={r.invoiceNo}
                         company="Kiaan Freight Services" customer={r.customerName} total={r.total}
                         onShared={() => draft && api(`/invoices/${r.id}/issue`, { method: 'POST' }).then(load)} />
@@ -207,11 +224,15 @@ export default function Invoices() {
               );
             })}
             {rows.length === 0 && (
-              <tr><td colSpan={7} className="muted">No invoices found.</td></tr>
+              <tr><td colSpan={8} className="muted">No invoices found.</td></tr>
             )}
           </tbody>
         </table>
       </div>
+
+      {costsFor && (
+        <CostsModal invoice={costsFor} onClose={() => setCostsFor(null)} onChanged={load} />
+      )}
 
       {payFor && (
         <div className="modal-backdrop" onClick={closePay}>

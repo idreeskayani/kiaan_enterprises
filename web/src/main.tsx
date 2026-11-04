@@ -2,7 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
-import ErrorBoundary from './Errorboundary.tsx'
+import ErrorBoundary from './ErrorBoundary.tsx'
 
 // stop the mouse wheel from changing a focused number field
 document.addEventListener(

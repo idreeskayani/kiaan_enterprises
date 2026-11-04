@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api, getUser } from '../api';
-import { Badge, fmt } from '../components';
+import { Badge, CountUp, fmt } from '../components';
 
 export default function ClearanceDashboard() {
   const nav = useNavigate();
@@ -26,10 +26,10 @@ export default function ClearanceDashboard() {
       .catch((e) => setError(e.message));
   }, []);
 
-  const stat = (text: string, value: string | number, to?: string) => (
+  const stat = (text: string, value: number, to?: string, money = false) => (
     <div className="stat" style={to ? { cursor: 'pointer' } : undefined} onClick={to ? () => nav(to) : undefined}>
       <span className="muted">{text}</span>
-      <b>{value}</b>
+      <b><CountUp value={value} money={money} /></b>
     </div>
   );
 
@@ -48,9 +48,9 @@ export default function ClearanceDashboard() {
           {stat('Paid', stats.invoices.paid, '/clearance/invoices?payment=PAID')}
           {stat('Unpaid', stats.invoices.unpaid, '/clearance/invoices?payment=UNPAID')}
           {stat('Remaining dues', stats.invoices.partial, '/clearance/invoices?payment=PARTIAL')}
-          {stat('Invoiced (PKR)', fmt(stats.amounts.invoiced))}
-          {stat('Collected (PKR)', fmt(stats.amounts.collected))}
-          {stat('Outstanding (PKR)', fmt(stats.amounts.outstanding))}
+          {stat('Invoiced (PKR)', stats.amounts.invoiced, undefined, true)}
+          {stat('Collected (PKR)', stats.amounts.collected, undefined, true)}
+          {stat('Outstanding (PKR)', stats.amounts.outstanding, undefined, true)}
         </div>
       )}
 

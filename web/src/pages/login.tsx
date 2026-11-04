@@ -73,8 +73,8 @@ export default function Login() {
             <path d="M3 7l9 5 9-5M12 12v10" />
           </svg>
           <div>
-            <h1>Kiaan Cargo</h1>
-            <p>Freight · Clearance · Logistics</p>
+            <h1>Kiaan Enterprises</h1>
+            <p>Freight · Clearance · Logistics · TNI Enterprises</p>
           </div>
         </div>
         {error && <div className="error">{error}</div>}

@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { label } from './constants';
 
 export const fmt = (n: number | string) =>
@@ -44,4 +45,24 @@ export function Breakdown({ q }: { q: any }) {
       </table>
     </div>
   );
+}
+
+// number that counts up from 0 when it appears
+export function CountUp({ value, money = false }: { value: number | string; money?: boolean }) {
+  const [v, setV] = useState(0);
+  useEffect(() => {
+    const target = Number(value) || 0;
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const dur = reduce ? 1 : 900;
+    const start = performance.now();
+    let raf = 0;
+    const tick = (t: number) => {
+      const p = Math.min(1, (t - start) / dur);
+      setV(target * (1 - Math.pow(1 - p, 3)));
+      if (p < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [value]);
+  return <>{money ? fmt(v) : Math.round(v)}</>;
 }

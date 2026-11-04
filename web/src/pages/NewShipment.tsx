@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, previewPdf } from '../api';
 import { ShareButton } from '../Share';
 import { Breakdown} from '../components';
@@ -24,7 +24,9 @@ const NAMES: Record<
 // One page for both: /shipments/new (new quotation) and /quotations/:id/edit (change a saved one).
 export default function NewShipment() {
   const { id } = useParams();
-  return <QuotationForm key={id ?? 'new'} editId={id} />;
+  const { pathname } = useLocation();
+  const editType = pathname.startsWith('/invoices/') ? 'invoice' : 'quotation'; // /invoices/:id/edit
+  return <QuotationForm key={`${editType}-${id ?? 'new'}`} editId={id} editType={editType} />;
 }
 
 type Kind = 'quotation' | 'shipment' | 'invoice';
@@ -34,11 +36,12 @@ const KINDS: { key: Kind; label: string }[] = [
   { key: 'invoice', label: 'Invoice' },
 ];
 
-function QuotationForm({ editId }: { editId?: string }) {
+function QuotationForm({ editId, editType }: { editId?: string; editType?: 'quotation' | 'invoice' }) {
   const nav = useNavigate();
   // what is being created: /shipments/new?type=invoice opens straight on that one
   const [sp] = useSearchParams();
   const [kind, setKind] = useState<Kind>(() => {
+    if (editType === 'invoice') return 'invoice';
     const t = sp.get('type');
     return t === 'shipment' || t === 'invoice' ? t : 'quotation';
   });
@@ -116,13 +119,17 @@ function QuotationForm({ editId }: { editId?: string }) {
 
   useEffect(() => {
     if (!editId) return;
-    api(`/quotations/${editId}`)
+    const isInv = editType === 'invoice';
+    api(isInv ? `/invoices/${editId}` : `/quotations/${editId}`)
       .then((q) => {
-        if (q.status !== 'DRAFT' && q.status !== 'SENT') {
-          setError('Only a draft or sent quotation can be edited');
-          return;
+        if (isInv) {
+          if (q.shipmentId) return setError('This invoice belongs to a shipment, so it cannot be edited here');
+          if (q.status === 'PAID') return setError('A paid invoice cannot be edited. Mark it unpaid first.');
+          if (!q.details) return setError('This invoice has no saved details to edit');
+        } else if (q.status !== 'DRAFT' && q.status !== 'SENT') {
+          return setError('Only a draft or sent quotation can be edited');
         }
-        const p = q.payload ?? {};
+        const p = (isInv ? q.details : q.payload) ?? {};
         const t = (v: unknown) => (v === undefined || v === null || v === 0 ? '' : String(v));
         const keep = (v: unknown) => (v === undefined || v === null ? '' : String(v));
         loaded.current = {
@@ -408,6 +415,24 @@ function QuotationForm({ editId }: { editId?: string }) {
     }
   }
 
+  // Editing a saved invoice: the number, status and payments stay, everything else is replaced.
+  async function updateInvoice(share: boolean) {
+    const problem = check();
+    if (problem) return setError(problem);
+    setBusy(true);
+    setError('');
+    try {
+      if (saveRate && num(ratePerUnit) > 0) await saveRateCard();
+      const inv = await api(`/invoices/${editId}`, { method: 'PUT', body: quotationBody() });
+      if (share) setSendInvoice(inv);
+      else nav('/invoices');
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function viewInvoice() {
     const problem = check();
     if (problem) return setError(problem);
@@ -475,7 +500,9 @@ function QuotationForm({ editId }: { editId?: string }) {
     <form onSubmit={(e) => e.preventDefault()}>
       <h1>
         {editId
-          ? `Edit quotation${editQuote ? ` ${editQuote.quoteNo}` : ''}`
+          ? editType === 'invoice'
+            ? `Edit invoice${editQuote ? ` ${editQuote.invoiceNo}` : ''}`
+            : `Edit quotation${editQuote ? ` ${editQuote.quoteNo}` : ''}`
           : `New ${kind}`}
       </h1>
       {!editId && (
@@ -814,7 +841,19 @@ function QuotationForm({ editId }: { editId?: string }) {
       {quote && <Breakdown q={quote} />}
 
       <div className="card">
-        {editId ? (
+        {editId && editType === 'invoice' ? (
+          <div className="row" style={{ gap: 10 }}>
+            <button type="button" className="ghost" disabled={busy} onClick={viewInvoice}>
+              View invoice
+            </button>
+            <button type="button" className="ghost" disabled={busy} onClick={() => updateInvoice(false)}>
+              {busy ? 'Saving...' : 'Save changes'}
+            </button>
+            <button type="button" disabled={busy} onClick={() => updateInvoice(true)}>
+              Share invoice
+            </button>
+          </div>
+        ) : editId ? (
           <div className="row" style={{ gap: 10 }}>
             <button type="button" className="ghost" disabled={busy} onClick={viewQuotation}>
               View quotation

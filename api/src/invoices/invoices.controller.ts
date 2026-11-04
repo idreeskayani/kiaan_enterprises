@@ -7,6 +7,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Put,
   Query,
   StreamableFile,
   UseGuards,
@@ -16,7 +17,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { Roles } from '../auth/roles.decorator.js';
 import { RolesGuard } from '../auth/roles.guard.js';
 import { CreateShipmentDto } from '../shipments/dto.js';
-import { UpdateInvoiceStatusDto } from './dto.js';
+import { AddCostDto, UpdateInvoiceStatusDto } from './dto.js';
 import { InvoicesService } from './invoices.service.js';
 
 @Controller('invoices')
@@ -71,6 +72,31 @@ export class InvoicesController {
   @Get(':id')
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.invoices.findOne(id);
+  }
+
+  // Change a standalone invoice (same form data as creating one).
+  @Put(':id')
+  update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: CreateShipmentDto) {
+    return this.invoices.update(id, dto);
+  }
+
+  // Costs (debit) of an invoice and the profit they leave.
+  @Get(':id/costs')
+  costs(@Param('id', ParseUUIDPipe) id: string) {
+    return this.invoices.costs(id);
+  }
+
+  @Post(':id/costs')
+  addCost(@Param('id', ParseUUIDPipe) id: string, @Body() dto: AddCostDto) {
+    return this.invoices.addCost(id, dto);
+  }
+
+  @Delete(':id/costs/:costId')
+  removeCost(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('costId', ParseUUIDPipe) costId: string,
+  ) {
+    return this.invoices.removeCost(id, costId);
   }
 
   @Post(':id/issue')

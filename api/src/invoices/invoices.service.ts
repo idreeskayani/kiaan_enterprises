@@ -7,6 +7,7 @@ import {
 import { InvoiceStatus, Prisma, ShipmentStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { CreateShipmentDto } from '../shipments/dto.js';
+import type { AddCostDto } from './dto.js';
 import { ShipmentsService } from '../shipments/shipments.service.js';
 import { buildInvoicePdf } from './invoice-pdf.js';
 import type { PdfInvoice } from './invoice-pdf.js';
@@ -162,11 +163,20 @@ export class InvoicesService {
         include: {
           customer: { select: { name: true } },
           shipment: { select: { refNo: true, customer: { select: { name: true } } } },
+          costs: { select: { amount: true } },
         },
         orderBy: { issuedAt: 'desc' },
       })
       .then((rows) =>
-        rows.map((r) => ({ ...r, customerName: r.customer?.name ?? r.shipment?.customer.name ?? '' })),
+        rows.map(({ costs, ...r }) => {
+          const costTotal = costs.reduce((sum, c) => sum + Number(c.amount), 0);
+          return {
+            ...r,
+            customerName: r.customer?.name ?? r.shipment?.customer.name ?? '',
+            costTotal: Math.round(costTotal * 100) / 100,
+            profit: Math.round((Number(r.total) - costTotal) * 100) / 100,
+          };
+        }),
       );
   }
 
@@ -187,13 +197,15 @@ export class InvoicesService {
   async summary() {
     const rows = await this.prisma.invoice.findMany({
       where: { status: { in: [InvoiceStatus.ISSUED, InvoiceStatus.PAID] } },
-      select: { status: true, total: true, dueAmount: true },
+      select: { status: true, total: true, dueAmount: true, costs: { select: { amount: true } } },
     });
     let invoiced = 0;
     let outstanding = 0;
+    let costs = 0;
     for (const r of rows) {
       const total = Number(r.total);
       invoiced += total;
+      costs += r.costs.reduce((sum, c) => sum + Number(c.amount), 0);
       if (r.status === InvoiceStatus.ISSUED) {
         const due = Number(r.dueAmount);
         outstanding += due > 0 ? due : total; // partly paid: what is left; unpaid: everything
@@ -204,6 +216,8 @@ export class InvoicesService {
       invoiced: round(invoiced),
       collected: round(invoiced - outstanding),
       outstanding: round(outstanding),
+      costs: round(costs),
+      profit: round(invoiced - costs),
     };
   }
 
@@ -241,6 +255,110 @@ export class InvoicesService {
         dueAmount: 0,
       },
     });
+  }
+
+  // Change a standalone invoice. The number, status and payments stay; details, lines and total are rebuilt.
+  async update(id: string, dto: CreateShipmentDto) {
+    const invoice = await this.findOne(id);
+    if (invoice.shipmentId) {
+      throw new BadRequestException('This invoice belongs to a shipment, so it cannot be edited here');
+    }
+    if (invoice.status === InvoiceStatus.PAID) {
+      throw new ConflictException('A paid invoice cannot be edited. Mark it unpaid first.');
+    }
+    const customer = await this.prisma.customer.findUnique({ where: { id: dto.customerId } });
+    if (!customer) throw new NotFoundException('Customer not found');
+
+    const q = await this.shipments.quote(dto);
+    const newTotal = Number(q.total);
+    const round = (n: number) => Math.round(n * 100) / 100;
+
+    // part-paid invoice: what is still owed moves with the total
+    let due = Number(invoice.dueAmount);
+    let status: InvoiceStatus = invoice.status;
+    if (due > 0) {
+      due = round(due + (newTotal - Number(invoice.total)));
+      if (due <= 0) {
+        due = 0;
+        status = InvoiceStatus.PAID;
+      } else if (due >= newTotal) {
+        due = 0;
+      }
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      await tx.invoiceLine.deleteMany({ where: { invoiceId: id } });
+      return tx.invoice.update({
+        where: { id },
+        data: {
+          customerId: dto.customerId,
+          details: JSON.parse(JSON.stringify(dto)) as Prisma.InputJsonValue,
+          total: q.total,
+          dueAmount: due,
+          status,
+          lines: {
+            create: q.lines.map((l) => ({
+              label: l.label,
+              amount: l.pkr,
+              currency: l.currency,
+              foreignAmount: l.foreign,
+              exRate: l.rate,
+            })),
+          },
+        },
+        include: { lines: true, customer: { select: { name: true } } },
+      });
+    });
+  }
+
+  // ---- costs (debit) and profit
+  async costs(id: string) {
+    const invoice = await this.findOne(id);
+    const costs = await this.prisma.invoiceCost.findMany({
+      where: { invoiceId: id },
+      orderBy: { incurredAt: 'asc' },
+    });
+    const revenue = Number(invoice.total);
+    const costTotal = costs.reduce((sum, c) => sum + Number(c.amount), 0);
+    const round = (n: number) => Math.round(n * 100) / 100;
+    return {
+      costs,
+      revenue: round(revenue),
+      costTotal: round(costTotal),
+      profit: round(revenue - costTotal),
+      margin: revenue > 0 ? round(((revenue - costTotal) / revenue) * 100) : 0,
+    };
+  }
+
+  async addCost(id: string, dto: AddCostDto) {
+    await this.findOne(id);
+    const currency = dto.currency?.trim().toUpperCase() || 'PKR';
+    const foreign = currency !== 'PKR';
+    if (foreign && !dto.exRate) {
+      throw new BadRequestException(`Enter the exchange rate (PKR per 1 ${currency})`);
+    }
+    const pkr = foreign ? Math.round(dto.amount * dto.exRate! * 100) / 100 : dto.amount;
+    await this.prisma.invoiceCost.create({
+      data: {
+        invoiceId: id,
+        label: dto.label.trim(),
+        vendor: dto.vendor?.trim() || null,
+        amount: pkr,
+        currency: foreign ? currency : null,
+        foreignAmount: foreign ? dto.amount : null,
+        exRate: foreign ? dto.exRate : null,
+        note: dto.note?.trim() || null,
+        incurredAt: dto.incurredAt ? new Date(dto.incurredAt) : undefined,
+      },
+    });
+    return this.costs(id);
+  }
+
+  async removeCost(id: string, costId: string) {
+    const found = await this.prisma.invoiceCost.findFirst({ where: { id: costId, invoiceId: id } });
+    if (!found) throw new NotFoundException('Cost not found');
+    await this.prisma.invoiceCost.delete({ where: { id: costId } });
+    return this.costs(id);
   }
 
   async remove(id: string) {
