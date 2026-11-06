@@ -8,7 +8,7 @@ import { CHARGE_CODES, DUTY_KEYS } from './charges.js';
 // TNI ENTERPRISES details printed on every clearance invoice. EDIT THESE.
 // (The address, phones and email are already on the letterhead images.)
 // ---------------------------------------------------------------------------
-const COMPANY = {
+export const COMPANY = {
   name: 'TNI ENTERPRISES',
   tagline: 'Customs Clearing & Forwarding Agents',
   address: 'Street # 06, Union Council Road, Near Jamia Masjid Sultan, Dhoke Haidri Koral, Islamabad - 44000',
@@ -55,7 +55,12 @@ export type ClearancePdfJob = {
   collectorate?: string | null;
   virNumber?: string | null;
   duties?: any;
-  lines: { code: string; amount: any }[];
+  // the client paid the duties & taxes through PSID: line 101 is printed but not added to the total
+  paidThroughPsid?: boolean;
+  // container numbers of the consignment
+  containers?: string[];
+  // in print order; NOC (219) and bilty (220) lines carry their own label
+  lines: { code: string; label?: string; amount: any }[];
 };
 
 const asset = (name: string) => {
@@ -93,10 +98,11 @@ export function buildClearancePdf(job: ClearancePdfJob): Promise<Buffer> {
     const str = (v: any) => (has(v) ? String(v) : '');
     const invDate = job.invoicedAt.toLocaleDateString('en-GB');
     const beDate = has(d.beDate) ? fmtDate(d.beDate) : '';
-    const rows = CHARGE_CODES.map((c) => ({
-      ...c,
-      amount: job.lines.find((l) => l.code === c.code)?.amount,
-    })).filter((r) => r.amount != null && Number(r.amount) > 0);
+    const labelOf = (code: string) => CHARGE_CODES.find((c) => c.code === code)?.label ?? '';
+    const rows = job.lines
+      .filter((l) => l.amount != null && Number(l.amount) > 0)
+      .map((l) => ({ code: l.code, label: l.label || labelOf(l.code), amount: l.amount as any }));
+    const psid = !!job.paidThroughPsid;
 
     // customs duty breakdown: printed inside the 101 row only when it was entered
     const dRaw: Record<string, any> = job.duties && typeof job.duties === 'object' ? job.duties : {};
@@ -113,17 +119,20 @@ export function buildClearancePdf(job: ClearancePdfJob): Promise<Buffer> {
       const r101 = rows.find((r) => r.code === '101');
       const old = r101 ? Number(r101.amount) : 0;
       if (r101) (r101 as any).amount = dutyTotal;
-      else rows.unshift({ ...CHARGE_CODES.find((c) => c.code === '101')!, amount: dutyTotal } as any);
-      totalAdj += dutyTotal - old;
+      else rows.unshift({ code: '101', label: labelOf('101'), amount: dutyTotal });
+      if (!psid) totalAdj += dutyTotal - old;
     }
+    // the 101 line carries a note when the client paid it through PSID
+    const r101p = rows.find((r) => r.code === '101');
+    if (psid && r101p) r101p.label = `${r101p.label}  [PAID THROUGH PSID - NOT IN TOTAL]`;
     const whole = Math.floor(totalAdj + 1e-9);
     const paisa = Math.round((totalAdj - whole) * 100);
     const words = `PKR: ${inWords(whole)}${paisa ? ` and ${inWords(paisa)} Paisa` : ''} Only`;
 
     // ---- text helpers (same look as the Kiaan freight invoice) --------------------------
     // the biggest font size (down to `min`) at which the text fits in `w`
-    const fitSize = (text: string, w: number, size: number, bold: boolean, min = 5.5) => {
-      doc.font(bold ? 'Helvetica-Bold' : 'Helvetica');
+    const fitSize = (text: string, w: number, size: number, font: string, min = 5.5) => {
+      doc.font(font);
       let sz = size;
       doc.fontSize(sz);
       while (sz > min && doc.widthOfString(text) > w) {
@@ -140,11 +149,12 @@ export function buildClearancePdf(job: ClearancePdfJob): Promise<Buffer> {
       w: number,
       h: number,
       text = '',
-      o: { bold?: boolean; size?: number; align?: 'left' | 'center' | 'right' } = {},
+      o: { bold?: boolean; italic?: boolean; color?: string; size?: number; align?: 'left' | 'center' | 'right' } = {},
     ) => {
       if (!text) return;
-      const size = fitSize(text, w - 6, Math.min(o.size ?? 8, Math.max(5.5, h - 2.4)), !!o.bold);
-      doc.fillColor('#000');
+      const font = o.italic ? 'Helvetica-Oblique' : o.bold ? 'Helvetica-Bold' : 'Helvetica';
+      const size = fitSize(text, w - 6, Math.min(o.size ?? 8, Math.max(5.5, h - 2.4)), font);
+      doc.fillColor(o.color ?? '#000');
       doc.text(text, x + 3, yy + (h - size) / 2 + 0.5, {
         width: w - 6,
         height: size + 2,
@@ -161,7 +171,7 @@ export function buildClearancePdf(job: ClearancePdfJob): Promise<Buffer> {
       w: number,
       h: number,
       text = '',
-      o: { bold?: boolean; size?: number; align?: 'left' | 'center' | 'right'; fill?: string } = {},
+      o: { bold?: boolean; italic?: boolean; color?: string; size?: number; align?: 'left' | 'center' | 'right'; fill?: string } = {},
     ) => {
       doc.lineWidth(0.5).strokeColor('#000');
       if (o.fill) doc.rect(x, yy, w, h).fillAndStroke(o.fill, '#000');
@@ -217,7 +227,8 @@ export function buildClearancePdf(job: ClearancePdfJob): Promise<Buffer> {
     const l2 = 108;
     const l3 = 32;
     const l4 = LW - l1 - l2 - l3;
-    const container = str(d.containerNo ?? d.container ?? d.containerNumber);
+    const listed = (job.containers ?? []).filter(Boolean);
+    const container = listed.length ? listed.join(', ') : str(d.containerNo ?? d.container ?? d.containerNumber);
     const leftRows: GRow[] = [
       wide('Commodity', str(d.commodity), LW - l1),
       pair('No. Of Pkgs', str(d.pcs), 'Weight', has(d.weightKg) ? `${money(d.weightKg)} KG` : ''),
@@ -366,6 +377,7 @@ export function buildClearancePdf(job: ClearancePdfJob): Promise<Buffer> {
 
     for (const r of rows) {
       const a = split(r.amount);
+      const note = psid && r.code === '101' ? { italic: true, color: '#555' } : { bold: true };
       if (r.code === '101' && showDuty && subs.length) {
         // big row: the customs duty line followed by where it goes
         const bigH = RH + subs.length * SUBH + 3;
@@ -375,8 +387,8 @@ export function buildClearancePdf(job: ClearancePdfJob): Promise<Buffer> {
         cell(xPs, y, PSW, bigH);
         txt(xS, y, SNW, RH, r.code, { align: 'center', size: 7.5 });
         txt(xP, y, PW, RH, r.label, { size: 8, bold: true });
-        txt(xR, y, RSW, RH, a.rs, { bold: true, align: 'right' });
-        txt(xPs, y, PSW, RH, a.ps, { bold: true, align: 'center' });
+        txt(xR, y, RSW, RH, a.rs, { ...note, align: 'right' });
+        txt(xPs, y, PSW, RH, a.ps, { ...note, align: 'center' });
         doc.lineWidth(0.3).strokeColor('#999').moveTo(xP + 3, y + RH).lineTo(xR + RSW - 3, y + RH).stroke();
         subs.forEach((sl, n) => {
           const sy = y + RH + 1 + n * SUBH;
@@ -388,8 +400,8 @@ export function buildClearancePdf(job: ClearancePdfJob): Promise<Buffer> {
       }
       cell(xS, y, SNW, RH, r.code, { align: 'center', size: 7.5 });
       cell(xP, y, PW, RH, r.label, { size: 8 });
-      cell(xR, y, RSW, RH, a.rs, { bold: true, align: 'right' });
-      cell(xPs, y, PSW, RH, a.ps, { bold: true, align: 'center' });
+      cell(xR, y, RSW, RH, a.rs, { ...note, align: 'right' });
+      cell(xPs, y, PSW, RH, a.ps, { ...note, align: 'center' });
       y += RH;
     }
 
