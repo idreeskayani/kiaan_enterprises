@@ -148,9 +148,7 @@ export function buildClearancePdf(job: ClearancePdfJob): Promise<Buffer> {
     const totalNum = totalAdj;
     const whole = Math.floor(totalNum + 1e-9);
     const paisa = Math.round((totalNum - whole) * 100);
-    const words = `AMOUNT IN WORDS: -  PKR ${inWords(whole)}${paisa ? ` and ${inWords(paisa)} Paisa` : ''} Only`;
-    doc.font('Helvetica-Bold').fontSize(8.5);
-    const wh = Math.max(20, doc.heightOfString(words, { width: FULL - 10 }) + 10);
+    const words = `PKR: ${inWords(whole)}${paisa ? ` and ${inWords(paisa)} Paisa` : ''} Only`;
 
     // letterhead images keep their own proportions
     const topImg = asset('tni-letterhead-top.png');
@@ -160,25 +158,89 @@ export function buildClearancePdf(job: ClearancePdfJob): Promise<Buffer> {
       const im = (doc as any).openImage(p);
       return (im.height * W) / im.width;
     };
-    // ---- fit everything on ONE page: squeeze the row heights first, then the letterhead images
-    const BH = 46;
-    const NOTE_H = 15;
-    const termsH = 12 + COMPANY.terms.length * 8.2 + 5;
+    // ---- the header uses the Kiaan invoice layout: customer box on the left, INVOICE box on the right.
+    // The INVOICE box starts in the white space beside the logo, so the table keeps normal-size rows.
+    const BH = 44;
+    const BANK_HEAD = 14;
+    const termsH = 11 + COMPANY.terms.length * 7.8 + 4;
     const hasAddress = has(job.customerAddress);
-    const hasTelNtn = has(job.customerPhone) || has(job.customerTax);
-    const hasTracking = has(job.collectorate) || has(job.virNumber);
-    const hdrRows = 2 + (hasTracking ? 1 : 0) + (hasAddress ? 1 : 0) + (hasTelNtn ? 1 : 0) + Math.ceil(optional.length / 2) + (hasContainers ? 1 : 0);
-    // the 101 row grows by its breakdown lines
-    const bodyUnits = rows.length + (showDuty ? subs.length * SUB_K + 0.25 : 0);
     const rawTop = topImg ? imgH(topImg) : 96;
     const rawBot = bottomImg ? imgH(bottomImg) : 44;
     const topH = topImg ? rawTop - 8 : rawTop; // blank strip under the banner
     const botH = bottomImg ? rawBot - 28 : rawBot; // blank strip above the address
-    const ROWH = 14; // header rows keep a fixed pitch so the lines stay perfectly aligned
-    // space that does not shrink: gaps, words box, note, banking, terms
-    const fixedExtra = 6 + 6 + (wh + 12) + NOTE_H + (16 + BH + 8) + (termsH + 4 + 6) + hdrRows * ROWH;
-    // only the table rows are squeezed (the letterhead keeps its full width)
-    const k = Math.max(0.5, Math.min(1, (H - topH - botH - fixedExtra) / ((bodyUnits + 2) * 14)));
+
+    // table columns: code | particulars | Rs. | Ps.
+    const SNW = 36;
+    const RSW = 92;
+    const PSW = 34;
+    const PW = FULL - SNW - RSW - PSW;
+    const xS = L;
+    const xP = xS + SNW;
+    const xR = xP + PW;
+    const xPs = xR + RSW;
+    // total row: amount in words, then the TOTAL label cell, then the amount
+    const TOTW = 62;
+    const WORDW = SNW + PW - TOTW;
+    doc.font('Helvetica-Bold').fontSize(8);
+    const th = Math.max(20, doc.heightOfString(words, { width: WORDW - 8 }) + 8);
+
+    // ---- header (layout C): a title bar beside the logo, then BILL TO / SHIPMENT boxes and one customs strip
+    const X0 = topImg ? 134 : L; // the logo (part of the letterhead image) ends before this
+    const HW = R - X0;
+    const BAR_Y = topImg ? 80 : topH + 6;
+    const BAR_H = 22;
+    const BOX_Y = BAR_Y + BAR_H + 4;
+    const BT_W = Math.round(HW * 0.43);
+    const SH_X = X0 + BT_W + 4;
+    const SH_W = R - SH_X;
+    const HEAD_H = 12;
+    const LINE_H = 10.5;
+    const shipPairs: [string, string][] = (
+      [
+        ['AWB No: ', d.blNo],
+        ['HAWB No: ', d.hawbNo],
+        ['Pkgs: ', d.pcs],
+        ['Weight: ', has(d.weightKg) ? `${money(d.weightKg)} KG` : ''],
+        ['Commodity: ', d.commodity],
+        ['Express On: ', d.expressOn],
+        ['Party Code: ', d.partyCode],
+        ['Invoice Ref: ', d.invoiceRef],
+      ] as [string, any][]
+    )
+      .filter(([, v]) => has(v))
+      .map(([kk, v]) => [kk, String(v)]);
+    const shipRows = Math.ceil(shipPairs.length / 2);
+    const ctrText = containers.join(', ');
+    const ctrLabel = containers.length > 1 ? 'Containers: ' : 'Container: ';
+    doc.font('Helvetica-Bold').fontSize(8);
+    const ctrLW = doc.widthOfString(ctrLabel) + 1;
+    doc.font('Helvetica').fontSize(8);
+    const ctrLines = hasContainers ? Math.min(2, Math.max(1, Math.ceil(doc.widthOfString(ctrText) / (SH_W - 10 - ctrLW)))) : 0;
+    const ctrH = ctrLines ? ctrLines * 9.5 + 2 : 0;
+    const BODY_H = Math.max(56, shipRows * LINE_H + 6 + ctrH);
+    const boxesBottom = BOX_Y + HEAD_H + BODY_H;
+    // customs strip: only the entries that were filled in
+    const stripItems = (
+      [
+        ['G.D No: ', job.gdNo, 1.5],
+        ['Dated: ', beDate, 0.8],
+        ['Collectorate: ', job.collectorate, 1],
+        ['VIR No: ', job.virNumber, 1.2],
+      ] as [string, any, number][]
+    ).filter(([, v]) => has(v));
+    const STRIP_H = 14;
+    const stripY = boxesBottom + 4;
+    const tableTop = (stripItems.length ? stripY + STRIP_H : boxesBottom) + 7;
+
+    // space that does not shrink: header boxes, total row, banking, terms
+    const fixedExtra = tableTop - topH + (th + 8) + (BANK_HEAD + BH + 6) + (termsH + 8);
+    const freeH = H - topH - botH - fixedExtra;
+    const subCount = (two: boolean) => (two ? Math.ceil(subs.length / 2) : subs.length);
+    const unitsFor = (two: boolean) => rows.length + (showDuty && subs.length ? subCount(two) * SUB_K + 0.25 : 0) + 1;
+    const kFor = (two: boolean) => Math.max(0.5, Math.min(1, freeH / (unitsFor(two) * 14)));
+    // the duty breakdown is one line each; it goes into two columns only when that keeps the rows bigger
+    const twoCol = subs.length > 1 && kFor(false) < 0.85;
+    const k = kFor(twoCol);
     const RH = 14 * k;
     const SUBH = RH * SUB_K;
     const imgW = W;
@@ -216,9 +278,13 @@ export function buildClearancePdf(job: ClearancePdfJob): Promise<Buffer> {
       o: { bold?: boolean; size?: number; align?: 'left' | 'center' | 'right'; color?: string; italic?: boolean } = {},
     ) => {
       if (!text) return;
-      const size = Math.min(o.size ?? 8, Math.max(5.5, h - 2.4));
+      let size = Math.min(o.size ?? 8, Math.max(5.5, h - 2));
       const face = o.bold ? (o.italic ? 'Helvetica-BoldOblique' : 'Helvetica-Bold') : o.italic ? 'Helvetica-Oblique' : 'Helvetica';
       doc.font(face).fontSize(size).fillColor(o.color ?? '#000');
+      while (size > 6 && doc.widthOfString(text) > w - 6) {
+        size -= 0.5;
+        doc.fontSize(size);
+      }
       doc.text(text, x + 3, yy + (h - size) / 2 + 0.5, {
         width: w - 6,
         height: size + 2,
@@ -274,73 +340,122 @@ export function buildClearancePdf(job: ClearancePdfJob): Promise<Buffer> {
     }
 
 
-    let y = topH + 6;
-    const HALF = (FULL - 20) / 2;
-    const RX = L + HALF + 20;
-
+    let y = tableTop;
     // everything is sized to fit on one page, so a page is never added
     const ensure = (_h: number) => {};
 
-    // ---- header, same lines as the printed bill (empty fields are not printed)
-    // invoice no. on the left, the title centred on the page, the date on the right
-    field('', job.invoiceNo, L, y, 170);
+    // ---- title bar (brand orange) with the invoice number and date
+    doc.lineWidth(0.5).rect(X0, BAR_Y, HW, BAR_H).fillAndStroke('#F59E2A', '#000');
     doc
       .font('Helvetica-Bold')
-      .fontSize(15)
+      .fontSize(13)
       .fillColor('#000')
-      .text('Bill Invoice', L, y - 3, { width: FULL, align: 'center', lineBreak: false, underline: true });
-    field('Dated ', invDate, R - 150, y, 150);
-    y += ROWH;
+      .text('BILL INVOICE', X0 + 8, BAR_Y + (BAR_H - 13) / 2 + 1, { lineBreak: false });
+    doc
+      .font('Helvetica-Bold')
+      .fontSize(9)
+      .fillColor('#000')
+      .text(`No. ${job.invoiceNo}     Date ${invDate}`, X0, BAR_Y + (BAR_H - 9) / 2 + 0.5, {
+        width: HW - 8,
+        align: 'right',
+        lineBreak: false,
+      });
 
-    // tracking: collectorate and VIR number, right under the invoice number
-    if (hasTracking) {
-      if (has(job.collectorate)) field('Collectorate: ', String(job.collectorate), L, y, FULL - 190);
-      if (has(job.virNumber)) field('VIR No: ', String(job.virNumber), R - 175, y, 175);
-      y += ROWH;
-    }
-
-    const commodity = has(d.commodity) ? `  ( ${d.commodity} )` : '';
-    field('Mr./M/s. ', `${job.customerName}${commodity}`, L, y, FULL);
-    y += ROWH;
-
+    // ---- BILL TO
+    const bodyY = BOX_Y + HEAD_H;
+    cell(X0, BOX_Y, BT_W, HEAD_H, 'BILL TO', { bold: true, size: 8, fill: '#c8c8c8' });
+    cell(X0, bodyY, BT_W, BODY_H);
+    doc.font('Helvetica-Bold').fontSize(9).fillColor('#000');
+    const nameH = Math.min(22, doc.heightOfString(job.customerName, { width: BT_W - 10 }));
+    doc.text(job.customerName, X0 + 5, bodyY + 4, { width: BT_W - 10, height: nameH, ellipsis: true });
+    const addrY = bodyY + 4 + nameH + 2;
+    const telNtn = [
+      has(job.customerPhone) ? `Tel: ${job.customerPhone}` : '',
+      has(job.customerTax) ? `NTN: ${job.customerTax}` : '',
+    ]
+      .filter(Boolean)
+      .join('    ');
+    doc.font('Helvetica').fontSize(8);
     if (hasAddress) {
-      field('Address: ', String(job.customerAddress), L, y, FULL, false);
-      y += ROWH;
+      doc.text(String(job.customerAddress), X0 + 5, addrY, {
+        width: BT_W - 10,
+        height: Math.max(9, bodyY + BODY_H - addrY - (telNtn ? 13 : 3)),
+        ellipsis: true,
+      });
+    }
+    if (telNtn) {
+      doc.font('Helvetica').fontSize(8).text(telNtn, X0 + 5, bodyY + BODY_H - 11, {
+        width: BT_W - 10,
+        height: 9,
+        lineBreak: false,
+        ellipsis: true,
+      });
     }
 
-    // telephone and NTN: separate bold fields, each in its own place on one row
-    if (hasTelNtn) {
-      if (has(job.customerPhone)) field('Tel: ', String(job.customerPhone), L, y, HALF, true, true);
-      if (has(job.customerTax)) field('NTN: ', String(job.customerTax), RX, y, HALF, true, true);
-      y += ROWH;
-    }
-
-    for (let i = 0; i < optional.length; i += 2) {
-      field(optional[i][0], optional[i][1], L, y, HALF);
-      if (optional[i + 1]) field(optional[i + 1][0], optional[i + 1][1], RX, y, HALF);
-      y += ROWH;
-    }
+    // ---- SHIPMENT: label: value lines, two per row (only what was filled in)
+    cell(SH_X, BOX_Y, SH_W, HEAD_H, 'SHIPMENT', { bold: true, size: 8, fill: '#c8c8c8' });
+    cell(SH_X, bodyY, SH_W, BODY_H);
+    const colW = (SH_W - 10) / 2;
+    shipPairs.forEach(([kk, v], n) => {
+      const px = SH_X + 5 + (n % 2) * colW;
+      const py = bodyY + 4 + Math.floor(n / 2) * LINE_H;
+      doc.font('Helvetica-Bold').fontSize(8);
+      const lw = doc.widthOfString(kk) + 1;
+      let size = 8;
+      doc.font('Helvetica').fontSize(size);
+      while (size > 6 && doc.widthOfString(v) > colW - lw - 6) {
+        size -= 0.5;
+        doc.fontSize(size);
+      }
+      doc.font('Helvetica-Bold').fontSize(8).fillColor('#000').text(kk, px, py, { lineBreak: false });
+      doc.font('Helvetica').fontSize(size).text(v, px + lw, py + (8 - size) * 0.4, {
+        width: colW - lw - 6,
+        height: 9,
+        lineBreak: false,
+        ellipsis: true,
+      });
+    });
     if (hasContainers) {
-      field(containers.length > 1 ? 'Container Nos: ' : 'Container No: ', containers.join(', '), L, y, FULL);
-      y += ROWH;
+      const cyy = bodyY + 4 + shipRows * LINE_H + 2;
+      doc.font('Helvetica-Bold').fontSize(8).fillColor('#000').text(ctrLabel, SH_X + 5, cyy, { lineBreak: false });
+      doc.font('Helvetica').fontSize(8).text(ctrText, SH_X + 5 + ctrLW, cyy, {
+        width: SH_W - 10 - ctrLW,
+        height: ctrLines * 9.5,
+        ellipsis: true,
+      });
     }
-    y += 6;
+
+    // ---- customs strip: G.D no., date, collectorate, VIR no.
+    if (stripItems.length) {
+      const wsum = stripItems.reduce((a, it) => a + it[2], 0);
+      let sx = L;
+      stripItems.forEach(([kk, v, wt]) => {
+        const w = (FULL * wt) / wsum;
+        doc.lineWidth(0.5).strokeColor('#000').rect(sx, stripY, w, STRIP_H).stroke();
+        doc.font('Helvetica-Bold').fontSize(8);
+        const lw = doc.widthOfString(kk) + 1;
+        let size = 8;
+        doc.font('Helvetica').fontSize(size);
+        while (size > 6 && doc.widthOfString(String(v)) > w - lw - 8) {
+          size -= 0.5;
+          doc.fontSize(size);
+        }
+        doc.font('Helvetica-Bold').fontSize(8).fillColor('#000').text(kk, sx + 4, stripY + (STRIP_H - 8) / 2 + 0.5, { lineBreak: false });
+        doc.font('Helvetica').fontSize(size).text(String(v), sx + 4 + lw, stripY + (STRIP_H - size) / 2 + 0.5, {
+          width: w - lw - 8,
+          height: size + 2,
+          lineBreak: false,
+          ellipsis: true,
+        });
+        sx += w;
+      });
+    }
+    y = tableTop;
 
     // ---- table: code | particulars | Rs. | Ps. (only the charges that were entered)
-    const INFO = 0;
-    const SNW = 36;
-    const RSW = 92;
-    const PSW = 34;
-    const PW = FULL - INFO - SNW - RSW - PSW;
-    const xS = L + INFO;
-    const xP = xS + SNW;
-    const xR = xP + PW;
-    const xPs = xR + RSW;
-
-
     ensure(80);
-    cell(xS, y, SNW, RH, '', { fill: '#c8c8c8' });
-    cell(xP, y, PW, RH, '', { fill: '#c8c8c8' });
+    cell(xS, y, SNW, RH, 'CODE', { bold: true, align: 'center', fill: '#c8c8c8' });
+    cell(xP, y, PW, RH, 'PARTICULARS', { bold: true, align: 'center', fill: '#c8c8c8' });
     cell(xR, y, RSW, RH, 'Rs.', { bold: true, align: 'center', fill: '#c8c8c8' });
     cell(xPs, y, PSW, RH, 'Ps.', { bold: true, align: 'center', fill: '#c8c8c8' });
     y += RH;
@@ -349,7 +464,7 @@ export function buildClearancePdf(job: ClearancePdfJob): Promise<Buffer> {
       const a = split(r.amount);
       if (r.code === '101' && showDuty && subs.length) {
         // big row: the customs duty line followed by where it goes
-        const bigH = RH + subs.length * SUBH + 3;
+        const bigH = RH + subCount(twoCol) * SUBH + 3;
         cell(xS, y, SNW, bigH);
         cell(xP, y, PW, bigH);
         cell(xR, y, RSW, bigH);
@@ -360,10 +475,21 @@ export function buildClearancePdf(job: ClearancePdfJob): Promise<Buffer> {
         txt(xR, y, RSW, RH, a.rs, { bold: true, align: 'right', color: memo ? '#666' : undefined, italic: memo });
         txt(xPs, y, PSW, RH, a.ps, { bold: true, align: 'center', color: memo ? '#666' : undefined, italic: memo });
         doc.lineWidth(0.3).strokeColor('#999').moveTo(xP + 3, y + RH).lineTo(xR + RSW - 3, y + RH).stroke();
+        const perCol = subCount(twoCol);
+        const colW = (PW - 14) / 2;
         subs.forEach((sl, n) => {
-          const sy = y + RH + 1 + n * SUBH;
-          txt(xP + 14, sy, PW - 14, SUBH, sl.label, { size: 7.5 });
-          if (sl.amount) txt(xR, sy, RSW, SUBH, sl.amount, { size: 7.5, align: 'right' });
+          if (twoCol) {
+            // two columns inside the particulars cell: label left, amount right
+            const col = n < perCol ? 0 : 1;
+            const sy = y + RH + 1 + (col ? n - perCol : n) * SUBH;
+            const sx = xP + 10 + col * colW;
+            txt(sx, sy, colW - 6, SUBH, sl.label, { size: 7.5 });
+            txt(sx, sy, colW - 6, SUBH, sl.amount, { size: 7.5, align: 'right' });
+          } else {
+            const sy = y + RH + 1 + n * SUBH;
+            txt(xP + 14, sy, PW - 14, SUBH, sl.label, { size: 7.5 });
+            if (sl.amount) txt(xR, sy, RSW, SUBH, sl.amount, { size: 7.5, align: 'right' });
+          }
         });
         y += bigH;
         continue;
@@ -376,46 +502,39 @@ export function buildClearancePdf(job: ClearancePdfJob): Promise<Buffer> {
       y += RH;
     }
 
-    // ---- total
+    // ---- total row: amount in words | TOTAL | amount (as on the Kiaan invoice)
     const tot = split(totalAdj);
-    ensure(RH);
-    cell(xS, y, SNW, RH, '344', { align: 'center', size: 7.5 });
-    cell(xP, y, PW, RH, 'Total', { bold: true, size: 9 });
-    cell(xR, y, RSW, RH, tot.rs, { bold: true, size: 9, align: 'right' });
-    cell(xPs, y, PSW, RH, tot.ps, { bold: true, align: 'center' });
-    y += RH;
+    ensure(th);
+    doc.lineWidth(0.5).strokeColor('#000').rect(xS, y, WORDW, th).stroke();
+    doc.font('Helvetica-Bold').fontSize(8).fillColor('#000').text(words, xS + 4, y + 4, { width: WORDW - 8 });
+    cell(xS + WORDW, y, TOTW, th, 'TOTAL', { bold: true, align: 'center' });
+    cell(xR, y, RSW, th, tot.rs, { bold: true, size: 9, align: 'right' });
+    cell(xPs, y, PSW, th, tot.ps, { bold: true, align: 'center' });
+    y += th + 8;
 
-    // ---- amount in words
-    ensure(wh);
-    doc.lineWidth(0.5).strokeColor('#000').rect(L, y, FULL, wh).stroke();
-    doc.font('Helvetica-Bold').fontSize(8.5).fillColor('#000').text(words, L + 5, y + 5, { width: FULL - 10 });
-    y += wh + 12;
-
-    // ---- note instead of a stamp
+    // ---- banking details (both accounts side by side); the computer-generated note shares the heading line
+    doc.font('Helvetica-Bold').fontSize(11).fillColor('#355E9B').text('Banking detail:', L, y, { lineBreak: false });
     doc
       .font('Helvetica-Bold')
-      .fontSize(8)
+      .fontSize(7)
       .fillColor('#000')
-      .text('This is a computer generated invoice. No signature or stamp is required.', L, y, {
+      .text('This is a computer generated invoice. No signature or stamp is required.', L, y + 3, {
         width: FULL,
         align: 'center',
+        lineBreak: false,
       });
-    y += NOTE_H;
-
-    // ---- banking details (both accounts side by side)
-    doc.font('Helvetica-Bold').fontSize(11).fillColor('#355E9B').text('Banking detail:', L, y);
-    y += 16;
+    y += BANK_HEAD;
     const BW = (FULL - 10) / COMPANY.banks.length;
     COMPANY.banks.forEach((b, i) => {
       const bx = L + i * (BW + 10);
       doc.lineWidth(0.5).strokeColor('#999').rect(bx, y, BW, BH).stroke();
-      doc.font('Helvetica-Bold').fontSize(9).fillColor('#000').text(b.bank, bx + 6, y + 4, { width: BW - 12 });
-      doc.font('Helvetica').fontSize(8.5);
-      doc.text(`Account Title: ${b.title}`, bx + 6, y + 15, { width: BW - 12 });
-      doc.text(`Account Number: ${b.account}`, bx + 6, y + 25, { width: BW - 12 });
-      doc.text(`IBAN: ${b.iban}`, bx + 6, y + 35, { width: BW - 12 });
+      doc.font('Helvetica-Bold').fontSize(9).fillColor('#000').text(b.bank, bx + 6, y + 3, { width: BW - 12, lineBreak: false });
+      doc.font('Helvetica').fontSize(8);
+      doc.text(`Account Title: ${b.title}`, bx + 6, y + 13.5, { width: BW - 12, lineBreak: false });
+      doc.text(`Account Number: ${b.account}`, bx + 6, y + 23, { width: BW - 12, lineBreak: false });
+      doc.text(`IBAN: ${b.iban}`, bx + 6, y + 32.5, { width: BW - 12, lineBreak: false });
     });
-    y += BH + 8;
+    y += BH + 6;
 
     // ---- terms & conditions (bottom of the page, above the footer)
     const ty = footerTop - termsH - 4;
@@ -423,7 +542,7 @@ export function buildClearancePdf(job: ClearancePdfJob): Promise<Buffer> {
     doc.font('Helvetica-Bold').fontSize(8).fillColor('#000').text('Terms & Conditions:', L + 4, ty + 3);
     doc.font('Helvetica').fontSize(6.5);
     COMPANY.terms.forEach((line, i) =>
-      doc.text(line, L + 4, ty + 12 + i * 8.2, { width: FULL - 8, height: 8, ellipsis: true }),
+      doc.text(line, L + 4, ty + 11 + i * 7.8, { width: FULL - 8, height: 8, ellipsis: true }),
     );
 
     doc.end();
