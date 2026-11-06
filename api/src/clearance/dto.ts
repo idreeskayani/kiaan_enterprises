@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 import {
   IsArray,
+  IsBoolean,
   IsEnum,
   IsIn,
   IsNotEmpty,
@@ -18,6 +19,17 @@ import { PaymentInfoDto } from '../invoices/dto.js';
 export class ChargeDto {
   @IsString() @IsNotEmpty() code: string;
   @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) amount: number;
+}
+
+export class NocDto {
+  @IsString() @IsNotEmpty() type: string;
+  @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) amount: number;
+}
+
+export class BiltyDto {
+  @IsString() @IsNotEmpty() origin: string;
+  @IsString() @IsNotEmpty() destination: string;
+  @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) rent: number;
 }
 
 export class CreateClearanceDto {
@@ -52,6 +64,20 @@ export class UpdateClearanceDto {
 
   @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => ChargeDto)
   charges?: ChargeDto[];
+
+  // the client paid the duties & taxes through PSID: shown on the bill, not added to the total
+  @IsOptional() @IsBoolean() paidThroughPsid?: boolean;
+
+  // container numbers (the whole list is sent each time)
+  @IsOptional() @IsArray() @IsString({ each: true }) containers?: string[];
+
+  // NOC types with their charge (the whole list is sent each time)
+  @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => NocDto)
+  nocs?: NocDto[];
+
+  // bilty transport; null removes it, undefined keeps it
+  @IsOptional() @ValidateNested() @Type(() => BiltyDto)
+  biltyTransport?: BiltyDto | null;
 }
 
 export class ClearanceStatusDto {

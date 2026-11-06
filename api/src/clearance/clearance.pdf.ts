@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import PDFDocument from 'pdfkit';
 import { fmtDate, inWords, money } from '../invoices/invoice-pdf.js';
-import { CHARGE_CODES, DUTY_KEYS } from './charges.js';
+import { BILTY_CHARGE_CODE, CHARGE_CODES, DUTY_KEYS, NOC_CHARGE_CODE } from './charges.js';
 
 // ---------------------------------------------------------------------------
 // TNI ENTERPRISES details printed on every clearance invoice. EDIT THESE.
@@ -55,7 +55,10 @@ export type ClearancePdfJob = {
   collectorate?: string | null;
   virNumber?: string | null;
   duties?: any;
-  lines: { code: string; amount: any }[];
+  // the client paid the duties & taxes through PSID: printed, but not part of the total
+  paidThroughPsid?: boolean;
+  containers?: string[];
+  lines: { code: string; label?: string; amount: any }[];
 };
 
 const asset = (name: string) => {
@@ -108,10 +111,19 @@ export function buildClearancePdf(job: ClearancePdfJob): Promise<Buffer> {
     )
       .filter(([, v]) => has(v))
       .map(([k, v]) => [k, String(v)]);
-    const rows = CHARGE_CODES.map((c) => ({
-      ...c,
-      amount: job.lines.find((l) => l.code === c.code)?.amount,
-    })).filter((r) => r.amount != null && Number(r.amount) > 0);
+    // fixed charges in the bill's order; the NOC charges and the bilty rent come just before the agency commission (301)
+    const dynamicRows = job.lines
+      .filter((l) => (l.code === NOC_CHARGE_CODE || l.code === BILTY_CHARGE_CODE) && Number(l.amount) > 0)
+      .map((l) => ({ code: l.code, label: l.label ?? '', amount: l.amount }));
+    const rows: { code: string; label: string; amount: any }[] = [];
+    for (const c of CHARGE_CODES) {
+      if (c.code === '301') rows.push(...dynamicRows);
+      const amount = job.lines.find((l) => l.code === c.code)?.amount;
+      if (amount != null && Number(amount) > 0) rows.push({ ...c, amount });
+    }
+    const psid = !!job.paidThroughPsid;
+    const containers = (job.containers ?? []).filter((c) => has(c));
+    const hasContainers = containers.length > 0;
 
     // customs duty breakdown: printed as its own block only when it was entered
     const dRaw: Record<string, any> = job.duties && typeof job.duties === 'object' ? job.duties : {};
@@ -130,7 +142,8 @@ export function buildClearancePdf(job: ClearancePdfJob): Promise<Buffer> {
       const old = r101 ? Number(r101.amount) : 0;
       if (r101) (r101 as any).amount = dutyTotal;
       else rows.unshift({ ...CHARGE_CODES.find((c) => c.code === '101')!, amount: dutyTotal } as any);
-      totalAdj += dutyTotal - old;
+      // paid through PSID: the line is printed but the bill total does not include it
+      if (!psid) totalAdj += dutyTotal - old;
     }
     const totalNum = totalAdj;
     const whole = Math.floor(totalNum + 1e-9);
@@ -154,7 +167,7 @@ export function buildClearancePdf(job: ClearancePdfJob): Promise<Buffer> {
     const hasAddress = has(job.customerAddress);
     const hasTelNtn = has(job.customerPhone) || has(job.customerTax);
     const hasTracking = has(job.collectorate) || has(job.virNumber);
-    const hdrRows = 2 + (hasTracking ? 1 : 0) + (hasAddress ? 1 : 0) + (hasTelNtn ? 1 : 0) + Math.ceil(optional.length / 2);
+    const hdrRows = 2 + (hasTracking ? 1 : 0) + (hasAddress ? 1 : 0) + (hasTelNtn ? 1 : 0) + Math.ceil(optional.length / 2) + (hasContainers ? 1 : 0);
     // the 101 row grows by its breakdown lines
     const bodyUnits = rows.length + (showDuty ? subs.length * SUB_K + 0.25 : 0);
     const rawTop = topImg ? imgH(topImg) : 96;
@@ -200,11 +213,12 @@ export function buildClearancePdf(job: ClearancePdfJob): Promise<Buffer> {
       w: number,
       h: number,
       text = '',
-      o: { bold?: boolean; size?: number; align?: 'left' | 'center' | 'right' } = {},
+      o: { bold?: boolean; size?: number; align?: 'left' | 'center' | 'right'; color?: string; italic?: boolean } = {},
     ) => {
       if (!text) return;
       const size = Math.min(o.size ?? 8, Math.max(5.5, h - 2.4));
-      doc.font(o.bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(size).fillColor('#000');
+      const face = o.bold ? (o.italic ? 'Helvetica-BoldOblique' : 'Helvetica-Bold') : o.italic ? 'Helvetica-Oblique' : 'Helvetica';
+      doc.font(face).fontSize(size).fillColor(o.color ?? '#000');
       doc.text(text, x + 3, yy + (h - size) / 2 + 0.5, {
         width: w - 6,
         height: size + 2,
@@ -221,7 +235,7 @@ export function buildClearancePdf(job: ClearancePdfJob): Promise<Buffer> {
       w: number,
       h: number,
       text = '',
-      o: { bold?: boolean; size?: number; align?: 'left' | 'center' | 'right'; fill?: string } = {},
+      o: { bold?: boolean; size?: number; align?: 'left' | 'center' | 'right'; fill?: string; color?: string; italic?: boolean } = {},
     ) => {
       doc.lineWidth(0.5).strokeColor('#000');
       if (o.fill) doc.rect(x, yy, w, h).fillAndStroke(o.fill, '#000');
@@ -306,6 +320,10 @@ export function buildClearancePdf(job: ClearancePdfJob): Promise<Buffer> {
       if (optional[i + 1]) field(optional[i + 1][0], optional[i + 1][1], RX, y, HALF);
       y += ROWH;
     }
+    if (hasContainers) {
+      field(containers.length > 1 ? 'Container Nos: ' : 'Container No: ', containers.join(', '), L, y, FULL);
+      y += ROWH;
+    }
     y += 6;
 
     // ---- table: code | particulars | Rs. | Ps. (only the charges that were entered)
@@ -337,9 +355,10 @@ export function buildClearancePdf(job: ClearancePdfJob): Promise<Buffer> {
         cell(xR, y, RSW, bigH);
         cell(xPs, y, PSW, bigH);
         txt(xS, y, SNW, RH, r.code, { align: 'center', size: 7.5 });
-        txt(xP, y, PW, RH, r.label, { size: 8, bold: true });
-        txt(xR, y, RSW, RH, a.rs, { bold: true, align: 'right' });
-        txt(xPs, y, PSW, RH, a.ps, { bold: true, align: 'center' });
+        const memo = psid && r.code === '101'; // PSID: shown, not added
+        txt(xP, y, PW, RH, memo ? `${r.label}  [PAID THROUGH PSID - NOT IN TOTAL]` : r.label, { size: 8, bold: true });
+        txt(xR, y, RSW, RH, a.rs, { bold: true, align: 'right', color: memo ? '#666' : undefined, italic: memo });
+        txt(xPs, y, PSW, RH, a.ps, { bold: true, align: 'center', color: memo ? '#666' : undefined, italic: memo });
         doc.lineWidth(0.3).strokeColor('#999').moveTo(xP + 3, y + RH).lineTo(xR + RSW - 3, y + RH).stroke();
         subs.forEach((sl, n) => {
           const sy = y + RH + 1 + n * SUBH;
@@ -349,10 +368,11 @@ export function buildClearancePdf(job: ClearancePdfJob): Promise<Buffer> {
         y += bigH;
         continue;
       }
+      const memo = psid && r.code === '101'; // PSID: shown, not added
       cell(xS, y, SNW, RH, r.code, { align: 'center', size: 7.5 });
-      cell(xP, y, PW, RH, r.label, { size: 8 });
-      cell(xR, y, RSW, RH, a.rs, { bold: true, align: 'right' });
-      cell(xPs, y, PSW, RH, a.ps, { bold: true, align: 'center' });
+      cell(xP, y, PW, RH, memo ? `${r.label}  [PAID THROUGH PSID - NOT IN TOTAL]` : r.label, { size: 8 });
+      cell(xR, y, RSW, RH, a.rs, { bold: true, align: 'right', color: memo ? '#666' : undefined, italic: memo });
+      cell(xPs, y, PSW, RH, a.ps, { bold: true, align: 'center', color: memo ? '#666' : undefined, italic: memo });
       y += RH;
     }
 

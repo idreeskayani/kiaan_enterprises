@@ -23,9 +23,23 @@ export const CHARGE_CODES: { code: string; label: string }[] = [
   { code: '213', label: 'Airline DO Charges' },
   { code: '214', label: 'Other Expanses' },
   { code: '215', label: 'Dog Snuffing' },
+  { code: '216', label: 'ANF Examination / Inspection' },
+  { code: '217', label: 'Local Trucking / Carriage' },
+  { code: '218', label: 'Wharfage / Port Charges / Shed Charges' },
   { code: '301', label: 'Agency Commission' },
   { code: '0212', label: 'GST. On Ag. Commission @17%' },
 ];
+
+// Charges that are not a fixed line: one per NOC taken, and the bilty transport rent.
+// They are printed just before the agency commission (301).
+export const NOC_CHARGE_CODE = '219';
+export const BILTY_CHARGE_CODE = '220';
+
+// NOC (No Objection Certificate) types, shown in the dropdown. Each one chosen adds its own NOC charge.
+export const NOC_TYPES = ['DRAP', 'PSQCA', 'MOI', 'MOD', 'PTA', 'PEMRA', 'QUARANTINE'] as const;
+
+// The duties & taxes charge. When the client paid it through PSID it is shown on the bill but not added.
+export const DUTY_CHARGE_CODE = '101';
 
 // Header fields printed on the bill (stored in job.details).
 export const DETAIL_KEYS = [

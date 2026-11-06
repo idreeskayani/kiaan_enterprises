@@ -4,7 +4,7 @@ import { api, getUser, openClearancePdf } from '../api';
 import { Badge, fmt } from '../components';
 import { ShareButton } from '../Share';
 import { CLEARANCE_STATUSES, label } from '../constants';
-import { CHARGE_CODES, COLLECTORATES, DUTY_KEYS, TRANSPORT_MODES, VIR_PREFIX, buildVir } from '../Charges';
+import { CHARGE_CODES, COLLECTORATES, DUTY_KEYS, NOC_TYPES, TRANSPORT_MODES, VIR_PREFIX, buildVir } from '../Charges';
 
 const DETAIL_FIELDS: [string, string, 'text' | 'date'][] = [
   ['expressOn', 'Express On', 'text'],
@@ -46,6 +46,14 @@ export default function ClearanceDetail() {
   const [duties, setDuties] = useState<Record<string, string>>({});
   // charge code -> amount typed in
   const [charges, setCharges] = useState<Record<string, string>>({});
+  // paid through PSID: the duties are printed on the bill but not added to the total
+  const [psid, setPsid] = useState(false);
+  const [containers, setContainers] = useState<string[]>([]);
+  const [containerIn, setContainerIn] = useState('');
+  // NOC types taken, each with its own charge
+  const [nocs, setNocs] = useState<{ type: string; amount: string }[]>([]);
+  // bilty transport: origin, destination and the rent
+  const [bilty, setBilty] = useState({ on: false, origin: '', destination: '', rent: '' });
 
   const [status, setStatus] = useState('');
   const [note, setNote] = useState('');
@@ -75,6 +83,15 @@ export default function ClearanceDetail() {
       const c: Record<string, string> = {};
       for (const l of j.lines as any[]) if (l.code) c[l.code] = String(l.amount);
       setCharges(c);
+      setPsid(!!j.paidThroughPsid);
+      setContainers(j.containers ?? []);
+      setNocs(((j.nocs ?? []) as { type: string; amount: number }[]).map((n) => ({ type: n.type, amount: Number(n.amount) > 0 ? String(n.amount) : '' })));
+      const b = j.biltyTransport;
+      setBilty(
+        b
+          ? { on: true, origin: b.origin, destination: b.destination, rent: Number(b.rent) > 0 ? String(b.rent) : '' }
+          : { on: false, origin: '', destination: '', rent: '' },
+      );
     } catch (e) {
       setError((e as Error).message);
     }
@@ -101,8 +118,11 @@ export default function ClearanceDetail() {
   const dutyTotalNow = () => DUTY_KEYS.reduce((t, d) => t + (Number(duties[d.key]) || 0), 0);
 
   // saves what is typed on the page (used by Save, View, Save draft and Share)
-  const patch = () =>
-    api(`/clearance/${id}`, {
+  const patch = () => {
+    if (bilty.on && (!bilty.origin.trim() || !bilty.destination.trim())) {
+      return Promise.reject(new Error('Enter the origin and destination for Bilty Transport'));
+    }
+    return api(`/clearance/${id}`, {
         method: 'PATCH',
         body: {
           customerName: cName.trim(),
@@ -121,10 +141,24 @@ export default function ClearanceDetail() {
             amount:
               c.code === '101' && dutyTotalNow() > 0 ? dutyTotalNow() : Number(charges[c.code]) || 0,
           })).filter((c) => c.amount > 0),
+          paidThroughPsid: psid,
+          containers,
+          nocs: nocs.map((n) => ({ type: n.type, amount: Number(n.amount) || 0 })),
+          biltyTransport: bilty.on
+            ? { origin: bilty.origin.trim(), destination: bilty.destination.trim(), rent: Number(bilty.rent) || 0 }
+            : null,
         },
       });
+  };
 
   const save = () => run(patch);
+
+  // pasted or typed container numbers (separated by space, comma or new line) are added to the list
+  function addContainer() {
+    const add = containerIn.split(/[\s,;]+/).map((c) => c.trim().toUpperCase()).filter(Boolean);
+    setContainers([...containers, ...add.filter((c, i) => !containers.includes(c) && add.indexOf(c) === i)]);
+    setContainerIn('');
+  }
 
   // View invoice: save the typed details first, then open the PDF (a preview until it is saved as a draft)
   function viewInvoice() {
@@ -263,6 +297,39 @@ export default function ClearanceDetail() {
             <label>G.D No</label>
             <input value={gdNo} disabled={!edit} onChange={(e) => setGdNo(e.target.value)} />
           </div>
+          <div style={{ flex: 2 }}>
+            <label>Container No (add one or more)</label>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <input
+                value={containerIn}
+                disabled={!edit}
+                placeholder="e.g. MSKU1234567"
+                onChange={(e) => setContainerIn(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    addContainer();
+                  }
+                }}
+              />
+              <button type="button" className="ghost" style={{ flex: 'none' }}
+                disabled={!edit || !containerIn.trim()} onClick={addContainer}>Add</button>
+            </div>
+            {containers.length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+                {containers.map((c) => (
+                  <span key={c} style={{ background: '#e0e7ff', borderRadius: 12, padding: '2px 4px 2px 10px', fontSize: 13 }}>
+                    {c}
+                    {edit && (
+                      <button type="button" aria-label={`Remove ${c}`} title="Remove"
+                        style={{ background: 'none', color: '#475569', padding: '0 6px', border: 0, cursor: 'pointer' }}
+                        onClick={() => setContainers(containers.filter((x) => x !== c))}>×</button>
+                    )}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
           <div>
             <label>Value Rs</label>
             <input type="number" min="0" step="any" value={value} disabled={!edit}
@@ -318,6 +385,14 @@ export default function ClearanceDetail() {
                   <div className="muted" style={{ marginTop: 6 }}>
                     Total customs duty: <b>{fmt(dutyTotal)}</b>
                   </div>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, cursor: edit ? 'pointer' : 'default' }}>
+                    <input type="checkbox" style={{ width: 'auto' }} checked={psid} disabled={!edit}
+                      onChange={(e) => setPsid(e.target.checked)} />
+                    <span>
+                      <b>Paid through PSID</b>
+                      <span className="muted"> - the client paid these duties himself. They are shown on the bill but not added to the total.</span>
+                    </span>
+                  </label>
                 </div>
               </div>
             ) : (
@@ -328,6 +403,60 @@ export default function ClearanceDetail() {
               </div>
             ),
           )}
+
+          <div style={{ flex: '1 1 100%' }}>
+            <label>NOC (No Objection Certificate) - each one you add gets its own charge</label>
+            <select
+              value=""
+              disabled={!edit}
+              onChange={(e) => e.target.value && setNocs([...nocs, { type: e.target.value, amount: '' }])}
+            >
+              <option value="">Add a NOC...</option>
+              {NOC_TYPES.filter((t) => !nocs.some((n) => n.type === t)).map((t) => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
+            {nocs.map((n) => (
+              <div key={n.type} className="row" style={{ marginTop: 8, alignItems: 'flex-end', gap: 8, flexWrap: 'nowrap' }}>
+                <div style={{ flex: 1 }}>
+                  <label>NOC Charges - {n.type} (PKR)</label>
+                  <input type="number" min="0" step="any" value={n.amount} disabled={!edit}
+                    onChange={(e) => setNocs(nocs.map((x) => (x.type === n.type ? { ...x, amount: e.target.value } : x)))} />
+                </div>
+                {edit && (
+                  <button type="button" className="ghost small" style={{ flex: 'none' }}
+                    onClick={() => setNocs(nocs.filter((x) => x.type !== n.type))}>Remove</button>
+                )}
+              </div>
+            ))}
+          </div>
+
+          <div style={{ flex: '1 1 100%' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: edit ? 'pointer' : 'default' }}>
+              <input type="checkbox" style={{ width: 'auto' }} checked={bilty.on} disabled={!edit}
+                onChange={(e) => setBilty({ ...bilty, on: e.target.checked })} />
+              <b>Bilty Transport</b>
+            </label>
+            {bilty.on && (
+              <div className="row" style={{ marginTop: 8, gap: 10, flexWrap: 'wrap' }}>
+                <div style={{ flex: '1 1 180px' }}>
+                  <label>Origin</label>
+                  <input value={bilty.origin} disabled={!edit} placeholder="e.g. Karachi"
+                    onChange={(e) => setBilty({ ...bilty, origin: e.target.value })} />
+                </div>
+                <div style={{ flex: '1 1 180px' }}>
+                  <label>Destination</label>
+                  <input value={bilty.destination} disabled={!edit} placeholder="e.g. Islamabad"
+                    onChange={(e) => setBilty({ ...bilty, destination: e.target.value })} />
+                </div>
+                <div style={{ flex: '1 1 160px' }}>
+                  <label>Rent (PKR)</label>
+                  <input type="number" min="0" step="any" value={bilty.rent} disabled={!edit}
+                    onChange={(e) => setBilty({ ...bilty, rent: e.target.value })} />
+                </div>
+              </div>
+            )}
+          </div>
         </div>
         {edit && (
           <div className="row" style={{ marginTop: 12 }}>
@@ -344,7 +473,10 @@ export default function ClearanceDetail() {
           </thead>
           <tbody>
             {(job.lines as any[]).map((l, i) => (
-              <tr key={i}><td>{l.code ? `${l.code} · ` : ''}{l.label}</td><td className="num">{fmt(l.amount)}</td></tr>
+              <tr key={i} className={job.paidThroughPsid && l.code === '101' ? 'muted' : undefined}>
+                <td>{l.code ? `${l.code} · ` : ''}{l.label}{job.paidThroughPsid && l.code === '101' ? ' (paid through PSID - not in total)' : ''}</td>
+                <td className="num">{fmt(l.amount)}</td>
+              </tr>
             ))}
             {job.lines.length === 0 && (
               <tr><td colSpan={2} className="muted">No charges yet. Save the details above to calculate.</td></tr>

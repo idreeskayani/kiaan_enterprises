@@ -15,9 +15,19 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { CreateClearanceDto, UpdateClearanceDto } from './dto.js';
 import { PaymentInfoDto } from '../invoices/dto.js';
 import { buildClearancePdf } from './clearance.pdf.js';
-import { CHARGE_CODES, DETAIL_KEYS, DUTY_KEYS } from './charges.js';
+import {
+  BILTY_CHARGE_CODE,
+  CHARGE_CODES,
+  DETAIL_KEYS,
+  DUTY_CHARGE_CODE,
+  DUTY_KEYS,
+  NOC_CHARGE_CODE,
+  NOC_TYPES,
+} from './charges.js';
 
 type Line = { code: string; label: string; amount: number };
+type Noc = { type: string; amount: number };
+type Bilty = { origin: string; destination: string; rent: number };
 
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -105,14 +115,65 @@ export class ClearanceService {
     return out;
   }
 
+  // Container numbers: trimmed, upper case, no duplicates.
+  private cleanContainers(v: unknown) {
+    if (!Array.isArray(v)) return [];
+    const out: string[] = [];
+    for (const x of v) {
+      const c = typeof x === 'string' ? x.trim().toUpperCase().slice(0, 25) : '';
+      if (c && !out.includes(c)) out.push(c);
+    }
+    return out.slice(0, 40);
+  }
+
+  // Only the known NOC types, each once, with a non-negative amount.
+  private cleanNocs(v: unknown): Noc[] {
+    if (!Array.isArray(v)) return [];
+    const out: Noc[] = [];
+    for (const x of v as { type?: unknown; amount?: unknown }[]) {
+      const type = typeof x?.type === 'string' ? x.type.trim().toUpperCase() : '';
+      if (!(NOC_TYPES as readonly string[]).includes(type) || out.some((n) => n.type === type)) continue;
+      const amount = Number(x.amount);
+      out.push({ type, amount: Number.isFinite(amount) && amount > 0 ? r2(amount) : 0 });
+    }
+    return out;
+  }
+
+  private cleanBilty(v: unknown): Bilty | null {
+    const b = v as { origin?: unknown; destination?: unknown; rent?: unknown } | null;
+    const origin = typeof b?.origin === 'string' ? b.origin.trim().slice(0, 80) : '';
+    const destination = typeof b?.destination === 'string' ? b.destination.trim().slice(0, 80) : '';
+    if (!origin || !destination) return null;
+    const rent = Number(b?.rent);
+    return { origin, destination, rent: Number.isFinite(rent) && rent > 0 ? r2(rent) : 0 };
+  }
+
   // Only the charges that were filled in; printed in the bill's own order.
-  private build(charges: { code: string; amount: number }[]) {
+  // NOC charges (one per NOC) and the bilty rent are added just before the agency commission.
+  // When the client paid the duties through PSID, that line is printed but not counted in the total.
+  private build(
+    charges: { code: string; amount: number }[],
+    extra: { psid: boolean; nocs: Noc[]; bilty: Bilty | null },
+  ) {
+    const dynamic: Line[] = [];
+    for (const n of extra.nocs) {
+      if (n.amount > 0) dynamic.push({ code: NOC_CHARGE_CODE, label: `NOC Charges - ${n.type}`, amount: n.amount });
+    }
+    if (extra.bilty && extra.bilty.rent > 0) {
+      dynamic.push({
+        code: BILTY_CHARGE_CODE,
+        label: `Bilty Transport - ${extra.bilty.origin} to ${extra.bilty.destination}`,
+        amount: extra.bilty.rent,
+      });
+    }
     const lines: Line[] = [];
     for (const c of CHARGE_CODES) {
+      if (c.code === '301') lines.push(...dynamic);
       const hit = charges.find((x) => x.code === c.code);
       if (hit && hit.amount > 0) lines.push({ code: c.code, label: c.label, amount: r2(hit.amount) });
     }
-    return { lines, total: r2(lines.reduce((s, l) => s + l.amount, 0)) };
+    const counted = lines.filter((l) => !(extra.psid && l.code === DUTY_CHARGE_CODE));
+    return { lines, total: r2(counted.reduce((s, l) => s + l.amount, 0)) };
   }
 
   private async nextJobNo() {
@@ -212,7 +273,11 @@ export class ClearanceService {
     if (dutyTotal > 0) {
       source = [...source.filter((c) => c.code !== '101'), { code: '101', amount: dutyTotal }];
     }
-    const { lines, total } = this.build(source);
+    const psid = dto.paidThroughPsid ?? job.paidThroughPsid;
+    const nocs = this.cleanNocs(dto.nocs ?? job.nocs);
+    const bilty = dto.biltyTransport === undefined ? this.cleanBilty(job.biltyTransport) : this.cleanBilty(dto.biltyTransport);
+    const containers = this.cleanContainers(dto.containers ?? job.containers);
+    const { lines, total } = this.build(source, { psid, nocs, bilty });
     const text = (v: string | undefined) => (v === undefined ? undefined : v.trim() || null);
 
     await this.prisma.clearanceJob.update({
@@ -233,6 +298,10 @@ export class ClearanceService {
         gdNo: text(dto.gdNo),
         lines: lines as unknown as Prisma.InputJsonValue,
         total,
+        paidThroughPsid: psid,
+        containers: containers as Prisma.InputJsonValue,
+        nocs: nocs as unknown as Prisma.InputJsonValue,
+        biltyTransport: bilty ? (bilty as unknown as Prisma.InputJsonValue) : Prisma.DbNull,
       },
     });
     return this.findOne(id);
@@ -379,7 +448,9 @@ export class ClearanceService {
       collectorate: job.collectorate,
       virNumber: job.virNumber,
       duties: job.duties,
-      lines: (job.lines as unknown as Line[]).map((l) => ({ code: l.code, amount: l.amount })),
+      paidThroughPsid: job.paidThroughPsid,
+      containers: this.cleanContainers(job.containers),
+      lines: (job.lines as unknown as Line[]).map((l) => ({ code: l.code, label: l.label, amount: l.amount })),
     });
     return { buffer, filename: `${job.invoiceNo ?? `${job.jobNo}-draft`}.pdf` };
   }

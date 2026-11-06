@@ -328,6 +328,14 @@ model ClearanceJob {
   collectorate    String?
   modeOfTransport String?
   virNumber       String?
+  // the client paid the duties & taxes himself through PSID: the bill shows them but does not add them to the total
+  paidThroughPsid Boolean            @default(false)
+  // container numbers of the consignment: ["MSKU1234567", ...]
+  containers      Json               @default("[]")
+  // NOC types taken for this job with the charge of each: [{ "type": "DRAP", "amount": 5000 }]
+  nocs            Json               @default("[]")
+  // bilty transport: { "origin": "...", "destination": "...", "rent": 25000 } (null = not used)
+  biltyTransport  Json?
   duties          Json               @default("{}")
   gdNo            String?
   status          ClearanceStatus    @default(PENDING)
