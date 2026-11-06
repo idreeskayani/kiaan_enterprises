@@ -155,13 +155,13 @@ export function PayFields({
 }
 
 // "Cheque #1234 · View pic" under a payment badge: the latest payment of a row.
-export function PaymentNote({ p }: { p?: any }) {
+export function PaymentNote({ p, imagePath = '/invoices/payments' }: { p?: any; imagePath?: string }) {
   if (!p) return null;
 
   async function view() {
     const win = window.open('', '_blank');
     try {
-      const { image } = await api<{ image: string | null }>(`/invoices/payments/${p.id}/image`);
+      const { image } = await api<{ image: string | null }>(`${imagePath}/${p.id}/image`);
       if (!image) throw new Error('No picture');
       const blob = await (await fetch(image)).blob();
       const url = URL.createObjectURL(blob);

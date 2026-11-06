@@ -1,13 +1,45 @@
 import PDFDocument from 'pdfkit';
 import { BOTTOM_RATIO, COMPANY, TOP_RATIO, asset, fmtDate, inWords, money } from './invoice-pdf.js';
 
+// The company a statement is printed for: letterhead images, bank accounts and the names of the two
+// reference columns. Freight (Kiaan) is the default; the clearance section passes TNI Enterprises.
+export type DuesBrand = {
+  name: string;
+  phones: string;
+  email: string;
+  banks: { bank: string; title: string; account: string; iban: string }[];
+  topImage: string;
+  bottomImage: string;
+  topRatio: number;
+  bottomRatio: number;
+  // the two reference columns (stored in DuesItem.mawb / DuesItem.hawb)
+  refHeads: [string, string];
+};
+
+export const KIAAN_BRAND: DuesBrand = {
+  name: COMPANY.name,
+  phones: COMPANY.phones,
+  email: COMPANY.email,
+  banks: [
+    { bank: COMPANY.bank.name, title: COMPANY.bank.title, account: COMPANY.bank.account, iban: COMPANY.bank.iban },
+  ],
+  topImage: 'letterhead-top.png',
+  bottomImage: 'letterhead-bottom.png',
+  topRatio: TOP_RATIO,
+  bottomRatio: BOTTOM_RATIO,
+  refHeads: ['MAWB', 'HAWB'],
+};
+
 // Which invoices a statement lists: the same choices as the filters on the Invoices page.
 export type DuesScope = 'ALL' | 'DUES' | 'UNPAID' | 'PAID' | 'DRAFT';
 export const DUES_SCOPES: DuesScope[] = ['ALL', 'DUES', 'UNPAID', 'PAID', 'DRAFT'];
+// the clearance section also has PARTIAL: only the part-paid invoices
+export type StatementScope = DuesScope | 'PARTIAL';
 
-const TITLES: Record<DuesScope, string> = {
+const TITLES: Record<StatementScope, string> = {
   ALL: 'ALL INVOICES',
   DUES: 'REMAINING DUES',
+  PARTIAL: 'REMAINING DUES',
   UNPAID: 'UNPAID INVOICES',
   PAID: 'PAID INVOICES',
   DRAFT: 'DRAFT INVOICES',
@@ -17,8 +49,8 @@ const TITLES: Record<DuesScope, string> = {
 export type DuesItem = {
   invoiceNo: string;
   issuedAt: Date | string;
-  mawb: string;
-  hawb: string;
+  mawb: string; // clearance statements keep the job no. here
+  hawb: string; // ... and the GD no. here
   total: number;
   paid: number;
   remaining: number;
@@ -26,7 +58,7 @@ export type DuesItem = {
 };
 
 export type DuesData = {
-  scope?: DuesScope; // missing on reports saved before scopes existed (those are DUES)
+  scope?: StatementScope; // missing on reports saved before scopes existed (those are DUES)
   customer: { name: string; address?: string | null; phone?: string | null; taxNumber?: string | null };
   items: DuesItem[];
   totalInvoiced: number;
@@ -35,6 +67,7 @@ export type DuesData = {
 };
 
 export type PdfDues = DuesData & {
+  brand?: DuesBrand; // Kiaan Freight when missing
   reportNo?: string | null; // only saved / sent reports have a number
   date: Date; // statement date
 };
@@ -42,6 +75,7 @@ export type PdfDues = DuesData & {
 // Customer-facing statement. It never shows costs or profit.
 export function buildDuesPdf(data: PdfDues): Promise<Buffer> {
   return new Promise((resolve, reject) => {
+    const b = data.brand ?? KIAAN_BRAND;
     const doc = new PDFDocument({ size: 'A4', margin: 0 });
     const chunks: Buffer[] = [];
     doc.on('data', (c: Buffer) => chunks.push(c));
@@ -54,9 +88,9 @@ export function buildDuesPdf(data: PdfDues): Promise<Buffer> {
     const R = W - 30;
     const FULL = R - L;
 
-    const topImg = asset('letterhead-top.png');
-    const bottomImg = asset('letterhead-bottom.png');
-    const footerTop = H - (bottomImg ? W * BOTTOM_RATIO : 50);
+    const topImg = asset(b.topImage);
+    const bottomImg = asset(b.bottomImage);
+    const footerTop = H - (bottomImg ? W * b.bottomRatio : 50);
 
     const drawFooter = () => {
       if (bottomImg) {
@@ -66,7 +100,7 @@ export function buildDuesPdf(data: PdfDues): Promise<Buffer> {
           .font('Helvetica')
           .fontSize(8)
           .fillColor('#444')
-          .text(`${COMPANY.name}  |  ${COMPANY.phones}  |  ${COMPANY.email}`, L, H - 30, {
+          .text(`${b.name}  |  ${b.phones}  |  ${b.email}`, L, H - 30, {
             width: FULL,
             align: 'center',
           });
@@ -102,12 +136,12 @@ export function buildDuesPdf(data: PdfDues): Promise<Buffer> {
     if (topImg) {
       doc.image(topImg, 0, 0, { width: W });
     } else {
-      doc.font('Helvetica-Bold').fontSize(22).fillColor('#14213d').text(COMPANY.name, L, 50);
+      doc.font('Helvetica-Bold').fontSize(22).fillColor('#14213d').text(b.name, L, 50);
     }
 
-    let y = (topImg ? W * TOP_RATIO : 80) + 8;
+    let y = (topImg ? W * b.topRatio : 80) + 8;
     const c = data.customer;
-    const scope: DuesScope = data.scope ?? 'DUES';
+    const scope: StatementScope = data.scope ?? 'DUES';
 
     // ---- title bar
     cell(L, y, FULL, 26, `STATEMENT OF ACCOUNT - ${TITLES[scope]}`, { bold: true, size: 14, align: 'center' });
@@ -137,7 +171,7 @@ export function buildDuesPdf(data: PdfDues): Promise<Buffer> {
       ['Statement Date', fmtDate(data.date)],
       ['Statement No.', data.reportNo ?? '-'],
       ['Currency', 'PKR'],
-      [scope === 'DUES' ? 'Open Invoices' : 'Invoices', String(data.items.length)],
+      [scope === 'DUES' || scope === 'PARTIAL' ? 'Open Invoices' : 'Invoices', String(data.items.length)],
     ];
     const rh = BOX_H / rows.length;
     rows.forEach(([k, v], i) => {
@@ -148,7 +182,7 @@ export function buildDuesPdf(data: PdfDues): Promise<Buffer> {
 
     // ---- table
     const cols = [20, 80, 52, 78, 78, 62, 62, 63, 40];
-    const heads = ['#', 'INVOICE NO.', 'DATE', 'MAWB', 'HAWB', 'TOTAL', 'RECEIVED', 'REMAINING', 'STATUS'];
+    const heads = ['#', 'INVOICE NO.', 'DATE', b.refHeads[0], b.refHeads[1], 'TOTAL', 'RECEIVED', 'REMAINING', 'STATUS'];
     const aligns: ('left' | 'center' | 'right')[] = [
       'center', 'left', 'center', 'left', 'left', 'right', 'right', 'right', 'center',
     ];
@@ -225,17 +259,17 @@ export function buildDuesPdf(data: PdfDues): Promise<Buffer> {
       });
     y += 22;
 
-    // ---- banking details
+    // ---- banking details (one block per bank account, side by side)
     ensure(70);
     doc.font('Helvetica-Bold').fontSize(11).fillColor('#355E9B').text('Banking detail:', L, y);
     y += 18;
-    doc.font('Helvetica').fontSize(8.5).fillColor('#000');
-    [
-      `Account Title: ${COMPANY.bank.title}`,
-      `Account Number: ${COMPANY.bank.account}`,
-      `IBAN: ${COMPANY.bank.iban}`,
-      COMPANY.bank.name,
-    ].forEach((line, i) => doc.text(line, L, y + i * 11));
+    const BW = FULL / b.banks.length;
+    b.banks.forEach((bk, i) => {
+      doc.font('Helvetica').fontSize(8.5).fillColor('#000');
+      [`Account Title: ${bk.title}`, `Account Number: ${bk.account}`, `IBAN: ${bk.iban}`, bk.bank].forEach(
+        (line, k) => doc.text(line, L + i * BW, y + k * 11, { width: BW - 8 }),
+      );
+    });
 
     doc.end();
   });

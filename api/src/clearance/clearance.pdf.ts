@@ -8,7 +8,7 @@ import { CHARGE_CODES, DUTY_KEYS } from './charges.js';
 // TNI ENTERPRISES details printed on every clearance invoice. EDIT THESE.
 // (The address, phones and email are already on the letterhead images.)
 // ---------------------------------------------------------------------------
-const COMPANY = {
+export const COMPANY = {
   name: 'TNI ENTERPRISES',
   tagline: 'Customs Clearing & Forwarding Agents',
   address: 'Street # 06, Union Council Road, Near Jamia Masjid Sultan, Dhoke Haidri Koral, Islamabad - 44000',

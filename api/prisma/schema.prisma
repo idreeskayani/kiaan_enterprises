@@ -210,7 +210,7 @@ enum PaymentDirection {
   DEBIT
 }
 
-// One payment event. Exactly one of invoiceId / costId is set.
+// One payment event. Exactly one of invoiceId / costId / clearanceJobId is set.
 model Payment {
   id        String           @id @default(uuid())
   direction PaymentDirection
@@ -225,10 +225,31 @@ model Payment {
   invoice   Invoice?         @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   costId    String?
   cost      InvoiceCost?     @relation(fields: [costId], references: [id], onDelete: Cascade)
+  // clearance agent section: money received for a clearance invoice
+  clearanceJobId String?
+  clearanceJob   ClearanceJob?    @relation(fields: [clearanceJobId], references: [id], onDelete: Cascade)
   paidAt    DateTime         @default(now())
 
   @@index([invoiceId])
   @@index([costId])
+  @@index([clearanceJobId])
+}
+
+// A saved statement of one clearance customer (same idea as DuesReport, but clearance customers are
+// kept by name on each job). `snapshot` freezes the figures as they were when it was saved or sent.
+model ClearanceReport {
+  id           String           @id @default(uuid())
+  reportNo     String           @unique
+  customerName String
+  status       DuesReportStatus @default(DRAFT)
+  // which invoices it lists: ALL | PARTIAL | UNPAID | PAID | DRAFT (same as the clearance invoice filters)
+  scope        String           @default("ALL")
+  totalDue     Decimal          @db.Decimal(14, 2)
+  invoiceCount Int
+  snapshot     Json
+  createdAt    DateTime         @default(now())
+
+  @@index([customerName])
 }
 
 enum DuesReportStatus {
@@ -319,6 +340,7 @@ model ClearanceJob {
   payment         ClearancePayment?
   dueAmount       Decimal            @default(0) @db.Decimal(14, 2)
   history         ClearanceHistory[]
+  payments        Payment[]
   createdAt       DateTime           @default(now())
   updatedAt       DateTime           @updatedAt
 }

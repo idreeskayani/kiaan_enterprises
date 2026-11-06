@@ -7,10 +7,13 @@ import {
 import {
   ClearancePayment,
   ClearanceStatus,
+  PaymentDirection,
+  PaymentMethod,
   Prisma,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CreateClearanceDto, UpdateClearanceDto } from './dto.js';
+import { PaymentInfoDto } from '../invoices/dto.js';
 import { buildClearancePdf } from './clearance.pdf.js';
 import { CHARGE_CODES, DETAIL_KEYS, DUTY_KEYS } from './charges.js';
 
@@ -22,6 +25,66 @@ const r2 = (n: number) => Math.round(n * 100) / 100;
 @Injectable()
 export class ClearanceService {
   constructor(private prisma: PrismaService) {}
+
+  // The latest payment shown in the lists (the picture itself is loaded only on request).
+  private static readonly lastPaymentSelect = {
+    orderBy: { paidAt: 'desc' as const },
+    take: 1,
+    select: {
+      id: true,
+      direction: true,
+      method: true,
+      reference: true,
+      amount: true,
+      hasImage: true,
+      paidAt: true,
+    },
+  };
+
+  // A cheque needs its number. Cash and online transfer need nothing more.
+  private checkPaymentInfo(pay?: PaymentInfoDto) {
+    if (pay?.method === 'CHEQUE' && !pay.reference?.trim()) {
+      throw new BadRequestException('Enter the cheque number');
+    }
+  }
+
+  // Payment row for money that just came in. Nothing is saved when no method was sent or nothing was paid.
+  private paymentRow(
+    jobId: string,
+    amount: number,
+    pay?: PaymentInfoDto,
+  ): Prisma.PaymentCreateManyInput | null {
+    if (!pay?.method || !(amount > 0)) return null;
+    return {
+      direction: PaymentDirection.CREDIT,
+      method: pay.method as PaymentMethod,
+      reference: pay.reference?.trim() || null,
+      amount: r2(amount),
+      hasImage: !!pay.image,
+      imageData: pay.image ?? null,
+      clearanceJobId: jobId,
+    };
+  }
+
+  // The proof picture of one payment (a data URL), or null.
+  async paymentImage(paymentId: string) {
+    const p = await this.prisma.payment.findUnique({
+      where: { id: paymentId },
+      select: { imageData: true },
+    });
+    if (!p) throw new NotFoundException('Payment not found');
+    return { image: p.imageData };
+  }
+
+  // Customer names that have an invoice (for the search list on the invoices page).
+  async customers() {
+    const rows = await this.prisma.clearanceJob.groupBy({
+      by: ['customerName'],
+      where: { invoiceNo: { not: null } },
+      orderBy: { customerName: 'asc' },
+    });
+    return rows.map((r) => r.customerName);
+  }
 
   private cleanDetails(d?: Record<string, unknown> | null) {
     const out: Record<string, string> = {};
@@ -90,7 +153,7 @@ export class ClearanceService {
   }
 
   // scope: ongoing | ready (released, not invoiced) | completed (released) | invoiced | all
-  list(status?: string, payment?: string, q?: string, scope?: string) {
+  async list(status?: string, payment?: string, q?: string, scope?: string) {
     const where: Prisma.ClearanceJobWhereInput = {};
     if (scope === 'ongoing') {
       where.status = { notIn: [ClearanceStatus.RELEASED, ClearanceStatus.CANCELLED] };
@@ -115,10 +178,12 @@ export class ClearanceService {
         { customerName: c },
       ];
     }
-    return this.prisma.clearanceJob.findMany({
+    const rows = await this.prisma.clearanceJob.findMany({
       where,
       orderBy: { createdAt: 'desc' },
+      include: { payments: ClearanceService.lastPaymentSelect },
     });
+    return rows.map(({ payments, ...r }) => ({ ...r, lastPayment: payments[0] ?? null }));
   }
 
   async findOne(id: string) {
@@ -233,16 +298,36 @@ export class ClearanceService {
   async removeInvoice(id: string) {
     const job = await this.findOne(id);
     if (!job.invoiceNo) throw new BadRequestException('This job has no invoice');
-    await this.prisma.clearanceJob.update({
-      where: { id },
-      data: { invoiceNo: null, invoicedAt: null, payment: null, dueAmount: 0 },
-    });
+    // the payments belonged to that invoice, so they go with it
+    await this.prisma.$transaction([
+      this.prisma.payment.deleteMany({ where: { clearanceJobId: id } }),
+      this.prisma.clearanceJob.update({
+        where: { id },
+        data: { invoiceNo: null, invoicedAt: null, payment: null, dueAmount: 0 },
+      }),
+    ]);
     return this.findOne(id);
   }
 
-  async setPayment(id: string, status: 'PAID' | 'UNPAID' | 'PARTIAL', dueAmount?: number) {
+  // PAID = fully paid, UNPAID = nothing paid, PARTIAL = part paid with dueAmount still owed.
+  // PAID / PARTIAL record the payment (cash, cheque or online) so it shows on the invoice list.
+  async setPayment(
+    id: string,
+    status: 'PAID' | 'UNPAID' | 'PARTIAL',
+    dueAmount?: number,
+    pay?: PaymentInfoDto,
+  ) {
     const job = await this.findOne(id);
     if (!job.invoiceNo) throw new BadRequestException('Generate the invoice first');
+    if (status !== 'UNPAID') this.checkPaymentInfo(pay);
+    // what the customer still owed before this payment
+    const owedBefore =
+      job.payment === ClearancePayment.PAID
+        ? 0
+        : job.payment === ClearancePayment.PARTIAL
+          ? Number(job.dueAmount)
+          : Number(job.total);
+
     if (status === 'PARTIAL') {
       if (dueAmount == null) throw new BadRequestException('Enter the remaining dues amount');
       if (dueAmount >= Number(job.total)) {
@@ -250,18 +335,26 @@ export class ClearanceService {
           'Remaining dues must be less than the invoice total. Use "Unpaid" if nothing has been paid.',
         );
       }
-      await this.prisma.clearanceJob.update({
-        where: { id },
-        data: { payment: ClearancePayment.PARTIAL, dueAmount },
-      });
+      const row = this.paymentRow(id, owedBefore - dueAmount, pay);
+      await this.prisma.$transaction([
+        this.prisma.clearanceJob.update({
+          where: { id },
+          data: { payment: ClearancePayment.PARTIAL, dueAmount },
+        }),
+        ...(row ? [this.prisma.payment.create({ data: row })] : []),
+      ]);
     } else {
-      await this.prisma.clearanceJob.update({
-        where: { id },
-        data: {
-          payment: status === 'PAID' ? ClearancePayment.PAID : ClearancePayment.UNPAID,
-          dueAmount: 0,
-        },
-      });
+      const row = status === 'PAID' ? this.paymentRow(id, owedBefore, pay) : null;
+      await this.prisma.$transaction([
+        this.prisma.clearanceJob.update({
+          where: { id },
+          data: {
+            payment: status === 'PAID' ? ClearancePayment.PAID : ClearancePayment.UNPAID,
+            dueAmount: 0,
+          },
+        }),
+        ...(row ? [this.prisma.payment.create({ data: row })] : []),
+      ]);
     }
     return this.findOne(id);
   }

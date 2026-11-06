@@ -13,6 +13,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { ClearanceStatus } from '@prisma/client';
+import { PaymentInfoDto } from '../invoices/dto.js';
 
 export class ChargeDto {
   @IsString() @IsNotEmpty() code: string;
@@ -58,7 +59,16 @@ export class ClearanceStatusDto {
   @IsOptional() @IsString() note?: string;
 }
 
-export class ClearancePaymentDto {
+// Same payment details as freight: cash / cheque (number) / online (reference) and an optional picture
+export class ClearancePaymentDto extends PaymentInfoDto {
   @IsIn(['PAID', 'UNPAID', 'PARTIAL']) status: 'PAID' | 'UNPAID' | 'PARTIAL';
   @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }) @IsPositive() dueAmount?: number;
+}
+
+// Save the statement of one clearance customer: DRAFT = kept for later, SENT = shared with the customer
+export class SaveClearanceReportDto {
+  @IsString() @IsNotEmpty() customer: string;
+  @IsOptional() @IsIn(['DRAFT', 'SENT']) status?: 'DRAFT' | 'SENT';
+  // which invoices it lists (the clearance invoice filters; ALL by default)
+  @IsOptional() @IsIn(['ALL', 'PARTIAL', 'UNPAID', 'PAID', 'DRAFT']) scope?: 'ALL' | 'PARTIAL' | 'UNPAID' | 'PAID' | 'DRAFT';
 }

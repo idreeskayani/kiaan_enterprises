@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { api, getUser, openClearancePdf } from '../api';
+import { api, getUser, openClearancePdf, openPdfPath } from '../api';
 import { Badge, fmt } from '../components';
 import { TrashIcon } from '../Icons';
 import { ShareButton } from '../Share';
+import { PayFields, PaymentNote, emptyPay, payBody, payError as checkPay, type PayInfo } from '../PaymentForm';
 
 export default function ClearanceInvoices() {
   const [sp] = useSearchParams();
@@ -21,6 +22,15 @@ export default function ClearanceInvoices() {
   const [dueIn, setDueIn] = useState('');
   const [payError, setPayError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [pay, setPay] = useState<PayInfo>(emptyPay);
+
+  // customer statements (reports) - same as the freight invoices page
+  const [customers, setCustomers] = useState<string[]>([]);
+  const [reports, setReports] = useState<any[]>([]);
+  const [reportNote, setReportNote] = useState<{ customer: string; text: string } | null>(null);
+  const [reportBusy, setReportBusy] = useState(false);
+  const lastSent = useRef(0);
+  const sentDrafts = useRef(new Set<string>());
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -79,6 +89,7 @@ export default function ClearanceInvoices() {
   function openPay(r: any) {
     setPayFor(r);
     setDueIn('');
+    setPay(emptyPay);
     setPayError('');
   }
 
@@ -88,10 +99,12 @@ export default function ClearanceInvoices() {
   }
 
   async function savePayment(body: { status: 'PAID' | 'PARTIAL'; dueAmount?: number }) {
+    const err = checkPay(pay);
+    if (err) return setPayError(err);
     setSaving(true);
     setPayError('');
     try {
-      await api(`/clearance/${payFor.id}/payment`, { method: 'PATCH', body });
+      await api(`/clearance/${payFor.id}/payment`, { method: 'PATCH', body: { ...body, ...payBody(pay) } });
       setPayFor(null);
       setTick((t) => t + 1);
     } catch (e) {
@@ -111,10 +124,92 @@ export default function ClearanceInvoices() {
     savePayment({ status: 'PARTIAL', dueAmount: Math.round(amount * 100) / 100 });
   }
 
+  // ---- customer statements. The report lists whatever the filter shows, for the customer typed in the search box.
+  const norm = (v: string) => v.trim().toLowerCase();
+  const selected = customers.find((c) => norm(c) === norm(q));
+  // the search is a partial match, so with a chosen customer only that customer's invoices are counted
+  const shown = selected ? rows.filter((r) => norm(r.customerName) === norm(selected)) : rows;
+  const scope = payment || 'ALL';
+  const scopeLabel: Record<string, string> = {
+    ALL: 'All invoices', DRAFT: 'Draft', UNPAID: 'Unpaid', PARTIAL: 'Remaining dues', PAID: 'Paid',
+  };
+  const canReport = !!selected && shown.length > 0;
+  const liveQs = selected ? `customer=${encodeURIComponent(selected)}&scope=${scope}` : '';
+
+  useEffect(() => {
+    api('/clearance/customers').then(setCustomers).catch(() => setCustomers([]));
+  }, [tick]);
+
+  async function loadReports() {
+    if (!selected) return;
+    try {
+      setReports(await api(`/clearance/reports/drafts?customer=${encodeURIComponent(selected)}`));
+    } catch {
+      setReports([]);
+    }
+  }
+  useEffect(() => {
+    if (!selected) return;
+    let alive = true;
+    api(`/clearance/reports/drafts?customer=${encodeURIComponent(selected)}`)
+      .then((r) => alive && setReports(r))
+      .catch(() => alive && setReports([]));
+    return () => {
+      alive = false;
+    };
+  }, [selected]);
+
+  async function saveReport(status: 'DRAFT' | 'SENT') {
+    if (!selected) return;
+    setError('');
+    setReportBusy(true);
+    try {
+      const r = await api(`/clearance/reports`, { method: 'POST', body: { customer: selected, status, scope } });
+      if (status === 'DRAFT') setReportNote({ customer: selected, text: `Draft saved as ${r.reportNo}` });
+      await loadReports();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setReportBusy(false);
+    }
+  }
+
+  async function viewReport(path: string) {
+    setError('');
+    const win = window.open('', '_blank');
+    try {
+      await openPdfPath(path, win);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  // sharing keeps a copy of what was sent (once per share, even if several buttons are used)
+  function reportShared() {
+    if (Date.now() - lastSent.current < 60_000) return;
+    lastSent.current = Date.now();
+    saveReport('SENT');
+  }
+
+  // a saved draft was shared: mark it sent (once); the list refreshes when the share popup closes
+  function draftShared(id: string) {
+    if (sentDrafts.current.has(id)) return;
+    sentDrafts.current.add(id);
+    api(`/clearance/reports/${id}/sent`, { method: 'PATCH' }).catch((e) => setError((e as Error).message));
+  }
+
+  function removeDraft(rep: { id: string; reportNo: string }) {
+    if (!window.confirm(`Delete draft ${rep.reportNo}? This cannot be undone.`)) return;
+    setError('');
+    api(`/clearance/reports/${rep.id}`, { method: 'DELETE' })
+      .then(loadReports)
+      .catch((e) => setError((e as Error).message));
+  }
+
   const due = (r: any) =>
     r.payment === 'PAID' ? 0 : r.payment === 'PARTIAL' ? Number(r.dueAmount) : Number(r.total);
-  const totalAmount = rows.reduce((s, r) => s + Number(r.total), 0);
-  const totalDue = rows.reduce((s, r) => s + due(r), 0);
+  const totalAmount = shown.reduce((s, r) => s + Number(r.total), 0);
+  const totalDue = shown.reduce((s, r) => s + due(r), 0);
 
   return (
     <>
@@ -123,8 +218,11 @@ export default function ClearanceInvoices() {
 
       <div className="row" style={{ marginBottom: 14 }}>
         <div style={{ flex: 3 }}>
-          <input type="search" placeholder="Search invoice, job, customer or GD no" value={q}
+          <input type="search" list="clearance-customers" placeholder="Search invoice, job, customer or GD no" value={q}
             onChange={(e) => setQ(e.target.value)} />
+          <datalist id="clearance-customers">
+            {customers.map((c) => <option key={c} value={c} />)}
+          </datalist>
         </div>
         <div>
           <select value={payment} onChange={(e) => setPayment(e.target.value)}>
@@ -152,7 +250,7 @@ export default function ClearanceInvoices() {
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => {
+            {shown.map((r) => {
               const paid = r.payment === 'PAID';
               const partial = r.payment === 'PARTIAL';
               return (
@@ -164,6 +262,7 @@ export default function ClearanceInvoices() {
                   <td>
                     <Badge status={r.payment} />
                     {partial && <span className="due">Remaining dues: PKR {fmt(r.dueAmount)}</span>}
+                    <PaymentNote p={r.lastPayment} imagePath="/clearance/payments" />
                   </td>
                   <td className="num">{fmt(r.total)}</td>
                   <td className="num">{fmt(due(r))}</td>
@@ -191,10 +290,10 @@ export default function ClearanceInvoices() {
                 </tr>
               );
             })}
-            {rows.length === 0 && <tr><td colSpan={8} className="muted">No invoices found.</td></tr>}
-            {rows.length > 0 && (
+            {shown.length === 0 && <tr><td colSpan={8} className="muted">No invoices found.</td></tr>}
+            {shown.length > 0 && (
               <tr>
-                <td colSpan={5}><b>{rows.length} invoice{rows.length === 1 ? '' : 's'}</b></td>
+                <td colSpan={5}><b>{shown.length} invoice{shown.length === 1 ? '' : 's'}</b></td>
                 <td className="num"><b>{fmt(totalAmount)}</b></td>
                 <td className="num"><b>{fmt(totalDue)}</b></td>
                 <td></td>
@@ -204,6 +303,95 @@ export default function ClearanceInvoices() {
         </table>
       </div>
 
+      <div className="card">
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+          <button className="ghost" disabled={!canReport || reportBusy} onClick={() => saveReport('DRAFT')}>
+            Save draft
+          </button>
+          <button className="ghost" disabled={!canReport} onClick={() => viewReport(`/clearance/reports/live?${liveQs}`)}>
+            View report
+          </button>
+          {canReport && selected ? (
+            <ShareButton
+              path={`/clearance/reports/live?${liveQs}`}
+              invoiceNo={`SOA-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}`}
+              company="TNI Enterprises"
+              customer={selected}
+              total={totalDue}
+              label="Share report"
+              className=""
+              docLabel="statement"
+              onShared={reportShared}
+            />
+          ) : (
+            <button disabled>Share report</button>
+          )}
+        </div>
+        {!selected && (
+          <p className="muted" style={{ margin: '10px 0 0' }}>
+            Choose the customer from the search list to make a report of their invoices.
+          </p>
+        )}
+        {selected && shown.length === 0 && (
+          <p className="muted" style={{ margin: '10px 0 0' }}>No invoices to report for this filter.</p>
+        )}
+        {reportNote && reportNote.customer === selected && (
+          <p className="muted" style={{ margin: '10px 0 0' }}>{reportNote.text}</p>
+        )}
+
+        {selected && reports.length > 0 && (
+          <table style={{ marginTop: 14 }}>
+            <thead>
+              <tr>
+                <th>Saved drafts</th>
+                <th>Type</th>
+                <th>Date</th>
+                <th className="num">Remaining (PKR)</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {reports.map((rep) => (
+                <tr key={rep.id}>
+                  <td>{rep.reportNo}</td>
+                  <td>{scopeLabel[rep.scope] ?? 'All invoices'}</td>
+                  <td>{new Date(rep.createdAt).toLocaleDateString()}</td>
+                  <td className="num">{fmt(rep.totalDue)}</td>
+                  <td>
+                    <div className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
+                      <button className="ghost small" onClick={() => viewReport(`/clearance/reports/${rep.id}/pdf`)}>
+                        View
+                      </button>
+                      {/* marked sent as soon as it is shared; leaves the list when the share popup closes */}
+                      <ShareButton
+                        path={`/clearance/reports/${rep.id}/pdf`}
+                        invoiceNo={rep.reportNo}
+                        company="TNI Enterprises"
+                        customer={selected}
+                        total={rep.totalDue}
+                        label="Share"
+                        docLabel="statement"
+                        onShared={() => draftShared(rep.id)}
+                        onClose={loadReports}
+                      />
+                      <button
+                        className="small"
+                        style={{ background: '#fee2e2', color: '#991b1b' }}
+                        title="Delete draft"
+                        aria-label="Delete draft"
+                        onClick={() => removeDraft(rep)}
+                      >
+                        <TrashIcon size={14} />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
       {payFor && (
         <div className="modal-backdrop" onClick={closePay}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -211,8 +399,12 @@ export default function ClearanceInvoices() {
             <p className="muted" style={{ margin: '0 0 14px' }}>
               {payFor.customerName} · Total PKR {fmt(payFor.total)}
             </p>
+            <span className="paydir credit">Credit · money received from customer</span>
             {payError && <div className="error">{payError}</div>}
 
+            <PayFields value={pay} onChange={setPay} disabled={saving} />
+
+            <div style={{ height: 14 }} />
             <button style={{ width: '100%' }} disabled={saving} onClick={() => savePayment({ status: 'PAID' })}>
               Fully paid
             </button>
