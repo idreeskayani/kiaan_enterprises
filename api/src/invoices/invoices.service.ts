@@ -143,7 +143,7 @@ export class InvoicesService {
       chargeableWeightKg: dto.chargeableWeightKg ?? null,
       exRate,
       details: dto.details ?? null,
-      items: dto.items,
+      items: dto.items.map((item) => ({ ...item, weightKg: item.weightKg ?? 0 })),
       customer: {
         name: customer.name,
         address: customer.address,
