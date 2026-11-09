@@ -18,10 +18,11 @@ import {
 import { Mode, ShipmentStatus } from '@prisma/client';
 
 export class ItemDto {
-  @IsNumber() @Min(0) lengthCm: number;
-  @IsNumber() @Min(0) widthCm: number;
-  @IsNumber() @Min(0) heightCm: number;
-  @IsNumber() @Min(0) weightKg: number;
+  // Only qty is required. Size and weight are optional (a missing one is saved as 0).
+  @IsOptional() @IsNumber() @Min(0) lengthCm?: number;
+  @IsOptional() @IsNumber() @Min(0) widthCm?: number;
+  @IsOptional() @IsNumber() @Min(0) heightCm?: number;
+  @IsOptional() @IsNumber() @Min(0) weightKg?: number;
   @IsInt() @Min(1) qty: number;
 }
 
@@ -48,6 +49,10 @@ export class QuoteDto {
   @IsString() @IsNotEmpty() destination: string;
   @IsOptional() @IsArray() @IsString({ each: true }) viaPoints?: string[];
   @IsOptional() @IsNumber() @Min(0) goodsValue?: number;
+
+  // Typed weights. Empty = worked out from the packages. Freight per kg is multiplied with the greater one.
+  @IsOptional() @IsNumber() @Min(0) grossWeightKg?: number;
+  @IsOptional() @IsNumber() @Min(0) chargeableWeightKg?: number;
 
   @IsOptional() @ValidateNested() @Type(() => RateDto) rate?: RateDto;
   @IsOptional() @IsNumber() @Min(0) freightOverride?: number;

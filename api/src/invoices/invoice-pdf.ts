@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import PDFDocument from 'pdfkit';
+import { computeWeights } from '../pricing/weights.js';
 
 // Company details printed on every invoice. Edit here if they change.
 export const COMPANY = {
@@ -69,6 +70,9 @@ export type PdfInvoice = {
     flight?: string | null;
     eta?: any;
     volDivisor?: number | null;
+    // typed weights (empty = worked out from the packages)
+    grossWeightKg?: any;
+    chargeableWeightKg?: any;
     exRate?: any;
     details?: any;
     items?: { lengthCm?: any; widthCm?: any; heightCm?: any; weightKg: any; qty: number }[];
@@ -210,18 +214,14 @@ export function buildInvoicePdf(inv: PdfInvoice): Promise<Buffer> {
     const airline = [d.airline, s.flight].filter(Boolean).join(' / ');
 
     const items = s.items ?? [];
-    const pkgs = items.reduce((a, i) => a + i.qty, 0);
-    const gross = items.reduce((a, i) => a + Number(i.weightKg) * i.qty, 0);
-    const div = s.volDivisor && s.volDivisor > 0 ? s.volDivisor : s.mode === 'ROAD' ? 4000 : 5000;
-    const vol = items.reduce(
-      (a, i) => a + ((Number(i.lengthCm) * Number(i.widthCm) * Number(i.heightCm)) / div) * i.qty,
-      0,
-    );
-    const cbm = items.reduce(
-      (a, i) => a + ((Number(i.lengthCm) * Number(i.widthCm) * Number(i.heightCm)) / 1_000_000) * i.qty,
-      0,
-    );
-    const chText = s.mode === 'SEA' ? `${cbm.toFixed(3)} CBM` : money(Math.max(gross, vol));
+    const wt = computeWeights(items, s.mode, s.volDivisor, {
+      grossKg: s.grossWeightKg,
+      chargeableKg: s.chargeableWeightKg,
+    });
+    const pkgs = wt.pieces;
+    const gross = wt.grossKg;
+    const cbm = wt.cbm;
+    const chText = s.mode === 'SEA' ? `${cbm.toFixed(3)} CBM` : money(wt.chargeableKg);
 
     // currencies used on the invoice with their exchange rates
     const cur: { code: string; rate: number }[] = [];

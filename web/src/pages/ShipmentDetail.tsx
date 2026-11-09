@@ -114,8 +114,8 @@ const isAgent = getUser()?.role === 'CLEARING_AGENT';
           <tbody>
             {s.items.map((i: any) => (
               <tr key={i.id}>
-                <td>{Number(i.lengthCm)} × {Number(i.widthCm)} × {Number(i.heightCm)}</td>
-                <td className="num">{Number(i.weightKg)}</td>
+                <td>{Number(i.lengthCm) > 0 || Number(i.widthCm) > 0 || Number(i.heightCm) > 0 ? `${Number(i.lengthCm)} × ${Number(i.widthCm)} × ${Number(i.heightCm)}` : '—'}</td>
+                <td className="num">{Number(i.weightKg) > 0 ? Number(i.weightKg) : '—'}</td>
                 <td className="num">{i.qty}</td>
               </tr>
             ))}

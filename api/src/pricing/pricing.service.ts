@@ -1,10 +1,13 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
+import { computeWeights } from './weights.js';
+import type { ManualWeights } from './weights.js';
 
+// Size and weight are optional (only qty is required); a missing value counts as 0.
 export type PricingItem = {
-  lengthCm: number;
-  widthCm: number;
-  heightCm: number;
-  weightKg: number;
+  lengthCm?: number | null;
+  widthCm?: number | null;
+  heightCm?: number | null;
+  weightKg?: number | null;
   qty: number;
 };
 
@@ -46,25 +49,14 @@ const FREIGHT_LABEL = { AIR: 'Air Freight', SEA: 'Sea Freight', ROAD: 'Road Frei
 
 @Injectable()
 export class PricingService {
-  calculate(items: PricingItem[], rate: PricingRate, opts: ChargeOptions) {
-    const divisor =
-      rate.volDivisor && rate.volDivisor > 0
-        ? rate.volDivisor
-        : rate.mode === 'ROAD'
-          ? 4000
-          : 5000;
+  calculate(items: PricingItem[], rate: PricingRate, opts: ChargeOptions, manual?: ManualWeights | null) {
+    const w = computeWeights(items, rate.mode, rate.volDivisor, manual);
+    const actualKg = w.grossKg;
+    const volKg = w.volumetricKg;
+    const cbm = w.cbm;
 
-    const actualKg = items.reduce((s, i) => s + i.weightKg * i.qty, 0);
-    const volKg = items.reduce(
-      (s, i) => s + ((i.lengthCm * i.widthCm * i.heightCm) / divisor) * i.qty,
-      0,
-    );
-    const cbm = items.reduce(
-      (s, i) => s + ((i.lengthCm * i.widthCm * i.heightCm) / 1_000_000) * i.qty,
-      0,
-    );
-
-    const chargeableKg = Math.max(actualKg, volKg);
+    // freight per kg is multiplied with the greater of gross and chargeable weight
+    const chargeableKg = w.billableKg;
     const units = rate.mode === 'SEA' ? cbm : chargeableKg;
 
     const overridden = rate.freightOverride != null;
@@ -128,9 +120,13 @@ export class PricingService {
 
     return {
       actualKg: r2(actualKg),
+      grossKg: w.grossKg,
       volumetricKg: r2(volKg),
       cbm: r2(cbm),
-      chargeableKg: r2(chargeableKg),
+      // the weight shown as "chargeable" on screens and the invoice
+      chargeableKg: w.chargeableKg,
+      // the weight the per-kg rate was multiplied with (greater of gross and chargeable)
+      billableKg: w.billableKg,
       freightOverridden: overridden,
       currency: opts.currency,
       exRate: isPkr ? null : ex,

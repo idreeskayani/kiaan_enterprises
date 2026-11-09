@@ -217,9 +217,14 @@ export class QuotationsService {
         flight: payload.flight ?? null,
         eta: payload.eta ?? null,
         volDivisor: payload.rate?.volDivisor ?? null,
+        grossWeightKg: payload.grossWeightKg ?? null,
+        chargeableWeightKg: payload.chargeableWeightKg ?? null,
         exRate: q.exRate,
         details: payload.details ?? null,
-        items: payload.items,
+        items: payload.items.map((item) => ({
+          ...item,
+          weightKg: item.weightKg ?? 0,
+        })),
         customer: {
           name: customer.name,
           address: customer.address,

@@ -106,9 +106,24 @@ export class ShipmentsService {
     return out;
   }
 
+  private manualWeights(dto: { grossWeightKg?: number | null; chargeableWeightKg?: number | null }) {
+    return { grossKg: dto.grossWeightKg ?? null, chargeableKg: dto.chargeableWeightKg ?? null };
+  }
+
+  // size and weight are optional: a missing value is stored as 0
+  private cleanItems(items: QuoteDto['items']) {
+    return items.map((i) => ({
+      lengthCm: i.lengthCm ?? 0,
+      widthCm: i.widthCm ?? 0,
+      heightCm: i.heightCm ?? 0,
+      weightKg: i.weightKg ?? 0,
+      qty: i.qty,
+    }));
+  }
+
   async quote(dto: QuoteDto) {
     const rate = await this.resolveRate(dto);
-    return this.pricing.calculate(dto.items, rate, this.chargeOpts(dto));
+    return this.pricing.calculate(dto.items, rate, this.chargeOpts(dto), this.manualWeights(dto));
   }
 
   // Normally BOOKED. A quotation that the client accepted creates a DRAFT first.
@@ -121,7 +136,7 @@ export class ShipmentsService {
     const rate = await this.resolveRate(dto);
     const opts = this.chargeOpts(dto);
     // checks the exchange rates and amounts before anything is saved
-    this.pricing.calculate(dto.items, rate, opts);
+    this.pricing.calculate(dto.items, rate, opts, this.manualWeights(dto));
 
     const refNo = `SH-${Date.now().toString(36).toUpperCase()}`;
     return this.prisma.shipment.create({
@@ -144,13 +159,16 @@ export class ShipmentsService {
         handling: rate.handling,
         volDivisor: rate.volDivisor ?? undefined,
         freightOverride: rate.freightOverride ?? undefined,
+        grossWeightKg: dto.grossWeightKg && dto.grossWeightKg > 0 ? dto.grossWeightKg : undefined,
+        chargeableWeightKg:
+          dto.chargeableWeightKg && dto.chargeableWeightKg > 0 ? dto.chargeableWeightKg : undefined,
         doCharges: opts.doCharges,
         freightLabel: opts.freightLabel ?? undefined,
         currency: opts.currency,
         exRate: opts.currency === 'PKR' ? undefined : (opts.exRate ?? undefined),
         extraCharges: opts.extras as unknown as Prisma.InputJsonValue,
         details: this.cleanDetails(dto.details) as Prisma.InputJsonValue,
-        items: { create: dto.items },
+        items: { create: this.cleanItems(dto.items) },
         history: {
           create: {
             status,
@@ -232,6 +250,10 @@ export class ShipmentsService {
         doCharges: s.doCharges !== null ? Number(s.doCharges) : 0,
         extras,
         freightLabel: s.freightLabel,
+      },
+      {
+        grossKg: s.grossWeightKg !== null ? Number(s.grossWeightKg) : null,
+        chargeableKg: s.chargeableWeightKg !== null ? Number(s.chargeableWeightKg) : null,
       },
     );
   }

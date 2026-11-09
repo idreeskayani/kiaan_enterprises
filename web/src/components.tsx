@@ -14,7 +14,8 @@ export function Breakdown({ q }: { q: any }) {
     <div className="card">
       <h3>Invoice charges</h3>
       <p className="muted">
-        Actual {q.actualKg} kg · Volumetric {q.volumetricKg} kg · Chargeable {q.chargeableKg} kg ·{' '}
+        Gross {q.grossKg ?? q.actualKg} kg · Volumetric {q.volumetricKg} kg · Chargeable {q.chargeableKg} kg ·{' '}
+        Billed on {q.billableKg ?? q.chargeableKg} kg ·{' '}
         {q.cbm} CBM
       </p>
       <table>

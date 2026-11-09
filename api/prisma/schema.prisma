@@ -85,6 +85,8 @@ model Shipment {
   handling        Decimal?        @db.Decimal(10, 2)
   volDivisor      Int?
   freightOverride Decimal?        @db.Decimal(14, 2)
+  grossWeightKg      Decimal?     @db.Decimal(10, 2)
+  chargeableWeightKg Decimal?     @db.Decimal(10, 2)
   doCharges       Decimal?        @db.Decimal(14, 2)
   freightLabel    String?
   currency        String          @default("USD")

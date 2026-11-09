@@ -139,6 +139,8 @@ export class InvoicesService {
       flight: dto.flight ?? null,
       eta: dto.eta ?? null,
       volDivisor: dto.rate?.volDivisor ?? null,
+      grossWeightKg: dto.grossWeightKg ?? null,
+      chargeableWeightKg: dto.chargeableWeightKg ?? null,
       exRate,
       details: dto.details ?? null,
       items: dto.items,
