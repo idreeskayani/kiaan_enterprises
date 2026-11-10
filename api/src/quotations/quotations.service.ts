@@ -221,10 +221,7 @@ export class QuotationsService {
         chargeableWeightKg: payload.chargeableWeightKg ?? null,
         exRate: q.exRate,
         details: payload.details ?? null,
-        items: payload.items.map((item) => ({
-          ...item,
-          weightKg: item.weightKg ?? 0,
-        })),
+        items: payload.items.map((item) => ({ ...item, weightKg: item.weightKg ?? null })),
         customer: {
           name: customer.name,
           address: customer.address,

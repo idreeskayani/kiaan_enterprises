@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   ConflictException,
   Controller,
@@ -18,7 +19,10 @@ import {
   CreateCustomerDto,
   CreateHsCodeDto,
   CreateRateCardDto,
+  CreateVendorDto,
+  UpdateCustomerDto,
   UpdateRateCardDto,
+  UpdateVendorDto,
 } from './dto.js';
 
 @Controller()
@@ -46,6 +50,68 @@ export class CatalogController {
   @Roles(Role.OPERATOR, Role.ACCOUNTANT)
   createCustomer(@Body() dto: CreateCustomerDto) {
     return this.prisma.customer.create({ data: dto });
+  }
+
+  // Empty text clears a detail (phone / address / tax number). The name cannot be emptied.
+  @Patch('customers/:id')
+  @Roles(Role.OPERATOR, Role.ACCOUNTANT)
+  updateCustomer(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateCustomerDto) {
+    const name = dto.name?.trim();
+    if (dto.name !== undefined && !name) throw new BadRequestException('Enter the customer name');
+    return this.prisma.customer.update({
+      where: { id },
+      data: {
+        ...(name ? { name } : {}),
+        ...(dto.phone !== undefined ? { phone: dto.phone.trim() || null } : {}),
+        ...(dto.address !== undefined ? { address: dto.address.trim() || null } : {}),
+        ...(dto.taxNumber !== undefined ? { taxNumber: dto.taxNumber.trim() || null } : {}),
+      },
+    });
+  }
+
+  @Get('vendors')
+  @Roles(Role.OPERATOR, Role.ACCOUNTANT)
+  vendors() {
+    return this.prisma.vendor.findMany({ orderBy: { name: 'asc' } });
+  }
+
+  @Post('vendors')
+  @Roles(Role.OPERATOR, Role.ACCOUNTANT)
+  createVendor(@Body() dto: CreateVendorDto) {
+    const name = dto.name.trim();
+    if (!name) throw new BadRequestException('Enter the vendor name');
+    return this.unique(
+      () =>
+        this.prisma.vendor.create({
+          data: {
+            name,
+            phone: dto.phone?.trim() || null,
+            address: dto.address?.trim() || null,
+            taxNumber: dto.taxNumber?.trim() || null,
+          },
+        }),
+      'A vendor with this name already exists',
+    );
+  }
+
+  @Patch('vendors/:id')
+  @Roles(Role.OPERATOR, Role.ACCOUNTANT)
+  updateVendor(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateVendorDto) {
+    const name = dto.name?.trim();
+    if (dto.name !== undefined && !name) throw new BadRequestException('Enter the vendor name');
+    return this.unique(
+      () =>
+        this.prisma.vendor.update({
+          where: { id },
+          data: {
+            ...(name ? { name } : {}),
+            ...(dto.phone !== undefined ? { phone: dto.phone.trim() || null } : {}),
+            ...(dto.address !== undefined ? { address: dto.address.trim() || null } : {}),
+            ...(dto.taxNumber !== undefined ? { taxNumber: dto.taxNumber.trim() || null } : {}),
+          },
+        }),
+      'A vendor with this name already exists',
+    );
   }
 
   @Get('rate-cards')

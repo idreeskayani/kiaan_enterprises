@@ -8,6 +8,27 @@ export class CreateCustomerDto {
   @IsOptional() @IsString() taxNumber?: string;
 }
 
+export class UpdateCustomerDto {
+  @IsOptional() @IsString() name?: string;
+  @IsOptional() @IsString() phone?: string;
+  @IsOptional() @IsString() address?: string;
+  @IsOptional() @IsString() taxNumber?: string;
+}
+
+export class CreateVendorDto {
+  @IsString() name: string;
+  @IsOptional() @IsString() phone?: string;
+  @IsOptional() @IsString() address?: string;
+  @IsOptional() @IsString() taxNumber?: string;
+}
+
+export class UpdateVendorDto {
+  @IsOptional() @IsString() name?: string;
+  @IsOptional() @IsString() phone?: string;
+  @IsOptional() @IsString() address?: string;
+  @IsOptional() @IsString() taxNumber?: string;
+}
+
 export class CreateRateCardDto {
   @IsEnum(Mode) mode: Mode;
   @IsString() origin: string;

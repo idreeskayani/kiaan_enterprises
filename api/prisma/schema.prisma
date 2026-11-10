@@ -63,6 +63,16 @@ model Customer {
   duesReports DuesReport[]
 }
 
+// A company we pay (airline, agent, transporter ...). Costs keep the vendor's name as text.
+model Vendor {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  phone     String?
+  address   String?
+  taxNumber String?
+  createdAt DateTime @default(now())
+}
+
 model Shipment {
   id              String          @id @default(uuid())
   refNo           String          @unique
