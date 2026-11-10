@@ -5,7 +5,7 @@ export class AppController {
   @Get()
   getHome() {
     return {
-      message: 'Kiaan Freight Services API is running successfully!',
+      message: 'Kiaan Freight Services KFS API is running successfully!',
       status: 'OK',
     };
   }

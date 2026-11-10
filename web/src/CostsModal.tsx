@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { api } from './api';
 import { Badge, fmt } from './components';
+import PartyPicker from './PartyPicker';
+import type { Party } from './PartyPicker';
 
 const SUGGESTIONS = [
   'Airline / shipping line freight',
@@ -31,7 +33,8 @@ export default function CostsModal({
   const [busy, setBusy] = useState(false);
 
   const [label, setLabel] = useState('');
-  const [vendor, setVendor] = useState('');
+  const [vendors, setVendors] = useState<Party[]>([]);
+  const [vendorId, setVendorId] = useState('');
   const [amount, setAmount] = useState('');
   const [currency, setCurrency] = useState('PKR');
   const [rate, setRate] = useState('');
@@ -44,6 +47,10 @@ export default function CostsModal({
       .then((r) => setFx(Object.fromEntries(r.map((x: any) => [x.currency, Number(x.rate)]))))
       .catch(() => setFx({}));
   }, [invoice.id]);
+
+  useEffect(() => {
+    api('/vendors').then(setVendors).catch(() => setVendors([]));
+  }, []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
@@ -71,7 +78,7 @@ export default function CostsModal({
         method: 'POST',
         body: {
           label: label.trim(),
-          vendor: vendor.trim() || undefined,
+          vendor: vendors.find((v) => v.id === vendorId)?.name || undefined,
           amount: Math.round(amt * 100) / 100,
           currency: foreign ? currency : undefined,
           exRate: foreign ? Math.round(Number(rate) * 10000) / 10000 : undefined,
@@ -81,7 +88,7 @@ export default function CostsModal({
       });
       setData(d);
       setLabel('');
-      setVendor('');
+      setVendorId('');
       setAmount('');
       setNote('');
       onChanged();
@@ -165,10 +172,20 @@ export default function CostsModal({
             <input list="cost-labels" placeholder="e.g. Airline freight" value={label} onChange={(e) => setLabel(e.target.value)} />
             <datalist id="cost-labels">{SUGGESTIONS.map((s) => <option key={s} value={s} />)}</datalist>
           </div>
-          <div style={{ flex: 2 }}>
-            <label>Paid to (optional)</label>
-            <input placeholder="Vendor / company" value={vendor} onChange={(e) => setVendor(e.target.value)} />
-          </div>
+        </div>
+        <div style={{ marginBottom: 10 }}>
+          <PartyPicker
+            label="Paid to (optional)"
+            noun="vendor"
+            endpoint="/vendors"
+            list={vendors}
+            value={vendorId}
+            onChange={setVendorId}
+            onList={setVendors}
+            onError={setError}
+            optional
+            emptyLabel="None"
+          />
         </div>
         <div className="row" style={{ marginBottom: 10 }}>
           <div>
