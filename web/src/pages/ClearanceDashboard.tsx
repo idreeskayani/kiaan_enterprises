@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api, getUser } from '../api';
 import { Badge, CountUp, fmt } from '../components';
+import { DateRange, useDateRange, withDates } from '../DateRange';
 
 export default function ClearanceDashboard() {
   const nav = useNavigate();
@@ -10,12 +11,15 @@ export default function ClearanceDashboard() {
   // const [drafts, setDrafts] = useState<any[]>([]);
   const [unpaid, setUnpaid] = useState<any[]>([]);
   const [error, setError] = useState('');
+  const range = useDateRange();
 
+  // reload the figures whenever the dates change
   useEffect(() => {
+    if (range.bad) return;
     Promise.all([
-      api('/clearance/stats'),
-      api('/clearance'),
-      api('/clearance?scope=invoiced'),
+      api(withDates('/clearance/stats', range)),
+      api(withDates('/clearance', range)),
+      api(withDates('/clearance?scope=invoiced', range)),
     ])
       .then(([s, inv]) => {
         setStats(s);
@@ -24,7 +28,8 @@ export default function ClearanceDashboard() {
         setUnpaid(inv.filter((j: any) => j.payment === 'UNPAID' || j.payment === 'PARTIAL').slice(0, 8));
       })
       .catch((e) => setError(e.message));
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [range.from, range.to]);
 
   const stat = (text: string, value: number, to?: string, money = false) => (
     <div className="stat" style={to ? { cursor: 'pointer' } : undefined} onClick={to ? () => nav(to) : undefined}>
@@ -39,15 +44,16 @@ export default function ClearanceDashboard() {
         <h1 style={{ margin: 0, flex: 5 }}>Clearance dashboard</h1>
         {canWork && <Link to="/clearance/new"><button type="button">+ New invoice</button></Link>}
       </div>
+      <DateRange from={range.from} to={range.to} setFrom={range.setFrom} setTo={range.setTo} bad={range.bad} />
       {error && <div className="error">{error}</div>}
 
       {stats && (
         <div className="grid" style={{ marginBottom: 14 }}>
-          {stat('Invoices issued', stats.invoices.issued, '/clearance/invoices')}
-          {stat('Draft', stats.invoices.drafts ?? 0, '/clearance/invoices?payment=DRAFT')}
-          {stat('Paid', stats.invoices.paid, '/clearance/invoices?payment=PAID')}
-          {stat('Unpaid', stats.invoices.unpaid, '/clearance/invoices?payment=UNPAID')}
-          {stat('Remaining dues', stats.invoices.partial, '/clearance/invoices?payment=PARTIAL')}
+          {stat('Invoices issued', stats.invoices.issued, withDates('/clearance/invoices', range))}
+          {stat('Draft', stats.invoices.drafts ?? 0, withDates('/clearance/invoices?payment=DRAFT', range))}
+          {stat('Paid', stats.invoices.paid, withDates('/clearance/invoices?payment=PAID', range))}
+          {stat('Unpaid', stats.invoices.unpaid, withDates('/clearance/invoices?payment=UNPAID', range))}
+          {stat('Remaining dues', stats.invoices.partial, withDates('/clearance/invoices?payment=PARTIAL', range))}
           {stat('Invoiced (PKR)', stats.amounts.invoiced, undefined, true)}
           {stat('Collected (PKR)', stats.amounts.collected, undefined, true)}
           {stat('Outstanding (PKR)', stats.amounts.outstanding, undefined, true)}

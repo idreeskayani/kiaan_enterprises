@@ -4,6 +4,7 @@ import { api, getUser, openClearancePdf, openPdfPath } from '../api';
 import { Badge, fmt } from '../components';
 import { TrashIcon } from '../Icons';
 import { ShareButton } from '../Share';
+import { DateRange, useDateRange } from '../DateRange';
 import { PayFields, PaymentNote, emptyPay, payBody, payError as checkPay, type PayInfo } from '../PaymentForm';
 
 export default function ClearanceInvoices() {
@@ -13,6 +14,7 @@ export default function ClearanceInvoices() {
   const [rows, setRows] = useState<any[]>([]);
   const [error, setError] = useState('');
   const [tick, setTick] = useState(0);
+  const range = useDateRange(sp.get('from') ?? '', sp.get('to') ?? '');
   const role = getUser()?.role;
   const canWork = role === 'CLEARING_AGENT';
   const canPay = canWork || role === 'ACCOUNTANT';
@@ -37,6 +39,9 @@ export default function ClearanceInvoices() {
       const qs = new URLSearchParams({ scope: 'invoiced' });
       if (payment) qs.set('payment', payment);
       if (q.trim()) qs.set('q', q.trim());
+      if (range.from) qs.set('from', range.from);
+      if (range.to) qs.set('to', range.to);
+      if (range.bad) return;
       api(`/clearance?${qs.toString()}`)
         .then((r) => {
           setRows(r.filter((x: any) => x.payment));
@@ -45,7 +50,7 @@ export default function ClearanceInvoices() {
         .catch((e) => setError(e.message));
     }, q ? 300 : 0);
     return () => clearTimeout(t);
-  }, [payment, q, tick]);
+  }, [payment, q, tick, range.from, range.to]);
 
   // close the popup with Escape
   useEffect(() => {
@@ -133,8 +138,10 @@ export default function ClearanceInvoices() {
   const scopeLabel: Record<string, string> = {
     ALL: 'All invoices', DRAFT: 'Draft', UNPAID: 'Unpaid', PARTIAL: 'Remaining dues', PAID: 'Paid',
   };
-  const canReport = !!selected && shown.length > 0;
-  const liveQs = selected ? `customer=${encodeURIComponent(selected)}&scope=${scope}` : '';
+  const canReport = !!selected && shown.length > 0 && !range.bad;
+  const liveQs = selected
+    ? `customer=${encodeURIComponent(selected)}&scope=${scope}${range.qs ? `&${range.qs}` : ''}`
+    : '';
 
   useEffect(() => {
     api('/clearance/customers').then(setCustomers).catch(() => setCustomers([]));
@@ -164,7 +171,7 @@ export default function ClearanceInvoices() {
     setError('');
     setReportBusy(true);
     try {
-      const r = await api(`/clearance/reports`, { method: 'POST', body: { customer: selected, status, scope } });
+      const r = await api(`/clearance/reports`, { method: 'POST', body: { customer: selected, status, scope, from: range.from || undefined, to: range.to || undefined } });
       if (status === 'DRAFT') setReportNote({ customer: selected, text: `Draft saved as ${r.reportNo}` });
       await loadReports();
     } catch (e) {
@@ -214,6 +221,7 @@ export default function ClearanceInvoices() {
   return (
     <>
       <h1>Clearance invoices</h1>
+      <DateRange from={range.from} to={range.to} setFrom={range.setFrom} setTo={range.setTo} bad={range.bad} />
       {error && <div className="error">{error}</div>}
 
       <div className="row" style={{ marginBottom: 14 }}>
@@ -290,7 +298,7 @@ export default function ClearanceInvoices() {
                 </tr>
               );
             })}
-            {shown.length === 0 && <tr><td colSpan={8} className="muted">No invoices found.</td></tr>}
+            {shown.length === 0 && <tr><td colSpan={8} className="muted">{range.active ? 'No invoices in the selected dates.' : 'No invoices found.'}</td></tr>}
             {shown.length > 0 && (
               <tr>
                 <td colSpan={5}><b>{shown.length} invoice{shown.length === 1 ? '' : 's'}</b></td>
@@ -333,7 +341,7 @@ export default function ClearanceInvoices() {
           </p>
         )}
         {selected && shown.length === 0 && (
-          <p className="muted" style={{ margin: '10px 0 0' }}>No invoices to report for this filter.</p>
+          <p className="muted" style={{ margin: '10px 0 0' }}>{range.active ? 'No invoices for this customer in the selected dates.' : 'No invoices to report for this filter.'}</p>
         )}
         {reportNote && reportNote.customer === selected && (
           <p className="muted" style={{ margin: '10px 0 0' }}>{reportNote.text}</p>

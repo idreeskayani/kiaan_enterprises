@@ -4,21 +4,24 @@ import { api, getUser } from '../api';
 import { TrashIcon } from '../Icons';
 import { Badge } from '../components';
 import { STATUSES, label } from '../constants';
+import { DateRange, useDateRange, withDates } from '../DateRange';
 
 export default function Shipments() {
   const [params, setParams] = useSearchParams();
   const status = params.get('status') ?? '';
   const [rows, setRows] = useState<any[]>([]);
   const [error, setError] = useState('');
+  const range = useDateRange(params.get('from') ?? '', params.get('to') ?? '');
   const canDelete = getUser()?.role === 'OPERATOR';
 
   function load() {
-    api(`/shipments${status ? `?status=${status}` : ''}`)
-      .then(setRows)
+    if (range.bad) return;
+    api(withDates(`/shipments${status ? `?status=${status}` : ''}`, range))
+      .then((r) => { setRows(r); setError(''); })
       .catch((e) => setError(e.message));
   }
 
-  useEffect(load, [status]);
+  useEffect(load, [status, range.from, range.to]);
 
   async function remove(s: any) {
     if (!window.confirm(`Delete shipment ${s.refNo}? This cannot be undone.`)) return;
@@ -48,6 +51,7 @@ export default function Shipments() {
         </div>
         <Link to="/shipments/new?type=shipment"><button>+ New shipment</button></Link>
       </div>
+      <DateRange from={range.from} to={range.to} setFrom={range.setFrom} setTo={range.setTo} bad={range.bad} />
       {error && <div className="error">{error}</div>}
       <div className="card">
         <table>
@@ -81,7 +85,7 @@ export default function Shipments() {
               </tr>
             ))}
             {rows.length === 0 && (
-              <tr><td colSpan={7} className="muted">No shipments found.</td></tr>
+              <tr><td colSpan={7} className="muted">{range.active ? 'No shipments in the selected dates.' : 'No shipments found.'}</td></tr>
             )}
           </tbody>
         </table>

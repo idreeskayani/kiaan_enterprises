@@ -59,6 +59,7 @@ export type DuesItem = {
 
 export type DuesData = {
   scope?: StatementScope; // missing on reports saved before scopes existed (those are DUES)
+  period?: { from?: string; to?: string }; // date filter of the report (YYYY-MM-DD), missing when not filtered
   customer: { name: string; address?: string | null; phone?: string | null; taxNumber?: string | null };
   items: DuesItem[];
   totalInvoiced: number;
@@ -71,6 +72,12 @@ export type PdfDues = DuesData & {
   reportNo?: string | null; // only saved / sent reports have a number
   date: Date; // statement date
 };
+
+// "01/11/2026 - 11/11/2026", "From 01/11/2026" or "Up to 11/11/2026"
+function periodLabel(p: { from?: string; to?: string }) {
+  if (p.from && p.to) return `${fmtDate(p.from)} - ${fmtDate(p.to)}`;
+  return p.from ? `From ${fmtDate(p.from)}` : `Up to ${fmtDate(p.to)}`;
+}
 
 // Customer-facing statement. It never shows costs or profit.
 export function buildDuesPdf(data: PdfDues): Promise<Buffer> {
@@ -170,7 +177,9 @@ export function buildDuesPdf(data: PdfDues): Promise<Buffer> {
     const rows: [string, string][] = [
       ['Statement Date', fmtDate(data.date)],
       ['Statement No.', data.reportNo ?? '-'],
-      ['Currency', 'PKR'],
+      data.period
+        ? ['Period', periodLabel(data.period)]
+        : ['Currency', 'PKR'],
       [scope === 'DUES' || scope === 'PARTIAL' ? 'Open Invoices' : 'Invoices', String(data.items.length)],
     ];
     const rh = BOX_H / rows.length;

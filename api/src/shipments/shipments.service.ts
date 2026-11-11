@@ -4,6 +4,7 @@ import type { Mode, Prisma } from '@prisma/client';
 import { PricingService } from '../pricing/pricing.service.js';
 import type { ChargeOptions, PricingRate } from '../pricing/pricing.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { dayRange } from '../common/date-range.js';
 import { CreateShipmentDto, QuoteDto } from './dto.js';
 
 const DETAIL_KEYS = [
@@ -178,9 +179,10 @@ export class ShipmentsService {
     });
   }
 
-  list(status?: ShipmentStatus) {
+  list(status?: ShipmentStatus, from?: string, to?: string) {
+    const range = dayRange(from, to);
     return this.prisma.shipment.findMany({
-      where: status ? { status } : undefined,
+      where: { ...(status && { status }), ...(range && { createdAt: range }) },
       include: { customer: true },
       orderBy: { createdAt: 'desc' },
     });
@@ -298,9 +300,11 @@ export class ShipmentsService {
     return shipment;
   }
 
-  async summary() {
+  async summary(from?: string, to?: string) {
+    const range = dayRange(from, to);
     const rows = await this.prisma.shipment.groupBy({
       by: ['status'],
+      where: range ? { createdAt: range } : undefined,
       _count: { _all: true },
     });
     return Object.fromEntries(rows.map((r) => [r.status, r._count._all]));

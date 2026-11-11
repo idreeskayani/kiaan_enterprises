@@ -12,6 +12,7 @@ import {
   Prisma,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { dayRange, inDayRange } from '../common/date-range.js';
 import { CreateClearanceDto, UpdateClearanceDto } from './dto.js';
 import { PaymentInfoDto } from '../invoices/dto.js';
 import { buildClearancePdf } from './clearance.pdf.js';
@@ -214,8 +215,18 @@ export class ClearanceService {
   }
 
   // scope: ongoing | ready (released, not invoiced) | completed (released) | invoiced | all
-  async list(status?: string, payment?: string, q?: string, scope?: string) {
+  // from/to: the job's created date; on the invoices view (scope=invoiced) the invoice date
+  async list(status?: string, payment?: string, q?: string, scope?: string, from?: string, to?: string) {
     const where: Prisma.ClearanceJobWhereInput = {};
+    const range = dayRange(from, to);
+    if (range) {
+      if (scope === 'invoiced') {
+        // invoice date; a draft that was never sent has none yet, so its created date counts
+        where.AND = [{ OR: [{ invoicedAt: range }, { invoicedAt: null, createdAt: range }] }];
+      } else {
+        where.createdAt = range;
+      }
+    }
     if (scope === 'ongoing') {
       where.status = { notIn: [ClearanceStatus.RELEASED, ClearanceStatus.CANCELLED] };
     } else if (scope === 'completed') {
@@ -455,15 +466,20 @@ export class ClearanceService {
     return { buffer, filename: `${job.invoiceNo ?? `${job.jobNo}-draft`}.pdf` };
   }
 
-  async stats() {
-    const all = await this.prisma.clearanceJob.findMany({
-      select: { status: true, payment: true, total: true, dueAmount: true },
+  // from/to: jobs are counted by created date, invoices by invoice date (created date for unsent drafts)
+  async stats(from?: string, to?: string) {
+    const range = dayRange(from, to);
+    const rows = await this.prisma.clearanceJob.findMany({
+      select: { status: true, payment: true, total: true, dueAmount: true, createdAt: true, invoicedAt: true },
     });
+    const all = rows.filter((j) => inDayRange(j.createdAt, range));
+    const invoicedIn = rows.filter((j) => inDayRange(j.invoicedAt ?? j.createdAt, range));
     const byStatus: Record<string, number> = {};
     for (const j of all) byStatus[j.status] = (byStatus[j.status] ?? 0) + 1;
 
     const live = all.filter((j) => j.status !== ClearanceStatus.CANCELLED);
-    const invoiced = live.filter(
+    const liveInv = invoicedIn.filter((j) => j.status !== ClearanceStatus.CANCELLED);
+    const invoiced = liveInv.filter(
       (j) => j.payment !== null && j.payment !== ClearancePayment.DRAFT,
     );
     const count = (p: ClearancePayment) => invoiced.filter((j) => j.payment === p).length;
@@ -488,8 +504,8 @@ export class ClearanceService {
       ).length,
       byStatus,
       invoices: {
-        notInvoiced: live.length - invoiced.length,
-        drafts: live.filter((j) => j.payment === ClearancePayment.DRAFT).length,
+        notInvoiced: live.filter((j) => j.payment === null).length,
+        drafts: liveInv.filter((j) => j.payment === ClearancePayment.DRAFT).length,
         issued: invoiced.length,
         paid: count(ClearancePayment.PAID),
         unpaid: count(ClearancePayment.UNPAID),

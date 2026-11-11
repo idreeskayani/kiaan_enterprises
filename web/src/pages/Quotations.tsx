@@ -4,6 +4,7 @@ import { api, getUser, openQuotationPdf } from '../api';
 import { Badge, fmt } from '../components';
 import { PencilIcon, TrashIcon } from '../Icons';
 import { ShareButton } from '../Share';
+import { DateRange, useDateRange, withDates } from '../DateRange';
 
 const QUOTE_STATUSES = ['DRAFT', 'SENT', 'ACCEPTED', 'REJECTED', 'EXPIRED'];
 
@@ -14,14 +15,16 @@ export default function Quotations() {
   const [rows, setRows] = useState<any[]>([]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState('');
+  const range = useDateRange();
 
   function load() {
-    api(`/quotations${status ? `?status=${status}` : ''}`)
-      .then(setRows)
+    if (range.bad) return;
+    api(withDates(`/quotations${status ? `?status=${status}` : ''}`, range))
+      .then((r) => { setRows(r); setError(''); })
       .catch((e) => setError(e.message));
   }
 
-  useEffect(load, [status]);
+  useEffect(load, [status, range.from, range.to]);
   // a draft saved while leaving the form may still be on its way
   useEffect(() => {
     const t = setTimeout(load, 1200);
@@ -86,6 +89,7 @@ export default function Quotations() {
         </div>
         {canAct && <Link to="/shipments/new?type=quotation"><button>+ New quotation</button></Link>}
       </div>
+      <DateRange from={range.from} to={range.to} setFrom={range.setFrom} setTo={range.setTo} bad={range.bad} />
       {error && <div className="error">{error}</div>}
       <div className="card">
         <table>
@@ -143,7 +147,7 @@ export default function Quotations() {
               );
             })}
             {rows.length === 0 && (
-              <tr><td colSpan={7} className="muted">No quotations found.</td></tr>
+              <tr><td colSpan={7} className="muted">{range.active ? 'No quotations in the selected dates.' : 'No quotations found.'}</td></tr>
             )}
           </tbody>
         </table>

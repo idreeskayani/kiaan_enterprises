@@ -5,6 +5,7 @@ import { ShareButton } from '../Share';
 import { Badge, fmt } from '../components';
 import { CLEARANCE_STATUSES, PAYMENT_STATES, label } from '../constants';
 import { TrashIcon } from '../Icons';
+import { DateRange, useDateRange } from '../DateRange';
 
 const SCOPES: [string, string][] = [
   ['ongoing', 'Ongoing'],
@@ -22,6 +23,7 @@ export default function ClearanceJobs() {
   const [rows, setRows] = useState<any[]>([]);
   const [error, setError] = useState('');
   const [tick, setTick] = useState(0);
+  const range = useDateRange(sp.get('from') ?? '', sp.get('to') ?? '');
   const canWork = getUser()?.role === 'CLEARING_AGENT';
 
   useEffect(() => {
@@ -31,6 +33,9 @@ export default function ClearanceJobs() {
       if (status) qs.set('status', status);
       if (payment) qs.set('payment', payment);
       if (q.trim()) qs.set('q', q.trim());
+      if (range.from) qs.set('from', range.from);
+      if (range.to) qs.set('to', range.to);
+      if (range.bad) return;
       const s = qs.toString();
       api(`/clearance${s ? `?${s}` : ''}`)
         .then((r) => {
@@ -40,7 +45,7 @@ export default function ClearanceJobs() {
         .catch((e) => setError(e.message));
     }, q ? 300 : 0);
     return () => clearTimeout(t);
-  }, [scope, status, payment, q, tick]);
+  }, [scope, status, payment, q, tick, range.from, range.to]);
 
   async function view(id: string) {
     const win = window.open('', '_blank');
@@ -65,6 +70,7 @@ export default function ClearanceJobs() {
   return (
     <>
       <h1>Clearance jobs</h1>
+      <DateRange from={range.from} to={range.to} setFrom={range.setFrom} setTo={range.setTo} bad={range.bad} />
       {error && <div className="error">{error}</div>}
 
       <div className="row" style={{ marginBottom: 12, gap: 6 }}>
@@ -137,7 +143,7 @@ export default function ClearanceJobs() {
                 </td>
               </tr>
             ))}
-            {rows.length === 0 && <tr><td colSpan={8} className="muted">No jobs found.</td></tr>}
+            {rows.length === 0 && <tr><td colSpan={8} className="muted">{range.active ? 'No jobs in the selected dates.' : 'No jobs found.'}</td></tr>}
           </tbody>
         </table>
       </div>

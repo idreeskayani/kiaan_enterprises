@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api';
 import { Badge, fmt } from '../components';
+import { DateRange, useDateRange } from '../DateRange';
 import { PayFields, PaymentNote, emptyPay, payBody, payError as checkPay, type PayInfo } from '../PaymentForm';
 
 // Every debit (cost) of every invoice in one list: filter by company and payment status.
@@ -10,6 +11,7 @@ export default function Debits() {
   const [rows, setRows] = useState<any[]>([]);
   const [vendors, setVendors] = useState<string[]>([]);
   const [error, setError] = useState('');
+  const range = useDateRange();
 
   // payment popup
   const [payFor, setPayFor] = useState<any>(null);
@@ -23,6 +25,9 @@ export default function Debits() {
       const qs = new URLSearchParams();
       if (vendor.trim()) qs.set('vendor', vendor.trim());
       if (payment) qs.set('payment', payment);
+      if (range.from) qs.set('from', range.from);
+      if (range.to) qs.set('to', range.to);
+      if (range.bad) return;
       const q = qs.toString();
       setRows(await api(`/invoices/costs${q ? `?${q}` : ''}`));
       setError('');
@@ -36,7 +41,7 @@ export default function Debits() {
     const t = setTimeout(load, vendor ? 300 : 0);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [vendor, payment]);
+  }, [vendor, payment, range.from, range.to]);
 
   // company names for the search suggestions (from all debits, not only the filtered ones)
   useEffect(() => {
@@ -143,15 +148,16 @@ export default function Debits() {
           </select>
         </div>
       </div>
+      <DateRange from={range.from} to={range.to} setFrom={range.setFrom} setTo={range.setTo} bad={range.bad} />
       {error && <div className="error">{error}</div>}
 
       <div className="grid" style={{ marginBottom: 14 }}>
         <div className="stat">
-          <span className="muted">Total debit{vendor.trim() || payment ? ' (filtered)' : ''}</span>
+          <span className="muted">Total debit{vendor.trim() || payment || range.active ? ' (filtered)' : ''}</span>
           <b>{fmt(totals.amount)}</b>
         </div>
         <div className="stat">
-          <span className="muted">Still to pay{vendor.trim() || payment ? ' (filtered)' : ''}</span>
+          <span className="muted">Still to pay{vendor.trim() || payment || range.active ? ' (filtered)' : ''}</span>
           <b className={totals.owed > 0 ? 'profit-neg' : 'profit-pos'}>{fmt(totals.owed)}</b>
         </div>
       </div>
@@ -218,7 +224,7 @@ export default function Debits() {
               );
             })}
             {rows.length === 0 && (
-              <tr><td colSpan={8} className="muted">No debits found.</td></tr>
+              <tr><td colSpan={8} className="muted">{range.active ? 'No debits in the selected dates.' : 'No debits found.'}</td></tr>
             )}
           </tbody>
         </table>

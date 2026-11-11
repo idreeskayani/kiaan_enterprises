@@ -10,6 +10,7 @@ import {
   IsOptional,
   IsPositive,
   IsString,
+  Matches,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -97,4 +98,7 @@ export class SaveClearanceReportDto {
   @IsOptional() @IsIn(['DRAFT', 'SENT']) status?: 'DRAFT' | 'SENT';
   // which invoices it lists (the clearance invoice filters; ALL by default)
   @IsOptional() @IsIn(['ALL', 'PARTIAL', 'UNPAID', 'PAID', 'DRAFT']) scope?: 'ALL' | 'PARTIAL' | 'UNPAID' | 'PAID' | 'DRAFT';
+  // optional date range (YYYY-MM-DD) of the invoices the report lists
+  @IsOptional() @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'Dates must look like YYYY-MM-DD' }) from?: string;
+  @IsOptional() @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'Dates must look like YYYY-MM-DD' }) to?: string;
 }

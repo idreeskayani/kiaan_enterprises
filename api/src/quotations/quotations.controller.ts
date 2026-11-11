@@ -47,8 +47,8 @@ export class QuotationsController {
   }
 
   @Get()
-  list(@Query('status') status?: QuotationStatus) {
-    return this.quotations.list(status);
+  list(@Query('status') status?: QuotationStatus, @Query('from') from?: string, @Query('to') to?: string) {
+    return this.quotations.list(status, from, to);
   }
 
   @Get(':id/pdf')

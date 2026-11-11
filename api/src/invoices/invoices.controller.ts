@@ -53,14 +53,19 @@ export class InvoicesController {
   // ?payment=PAID or ?payment=UNPAID (leave empty for all)
   // ?customer=<name> shows only that customer's invoices (partial, case-insensitive match)
   @Get('summary')
-  summary() {
-    return this.invoices.summary();
+  summary(@Query('from') from?: string, @Query('to') to?: string) {
+    return this.invoices.summary(from, to);
   }
 
   // Debits of every invoice (declared before ':id' routes). ?vendor=<name>&payment=PAID|UNPAID|PARTIAL
   @Get('costs')
-  allCosts(@Query('vendor') vendor?: string, @Query('payment') payment?: string) {
-    return this.invoices.listCosts(vendor, payment);
+  allCosts(
+    @Query('vendor') vendor?: string,
+    @Query('payment') payment?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.invoices.listCosts(vendor, payment, from, to);
   }
 
   @Patch('costs/:costId/payment')
@@ -82,8 +87,15 @@ export class InvoicesController {
   async duesPdf(
     @Param('customerId', ParseUUIDPipe) customerId: string,
     @Query('scope') scope?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
   ) {
-    const { buffer, filename } = await this.invoices.duesPdf(customerId, DUES_SCOPES.includes(scope as DuesScope) ? (scope as DuesScope) : 'DUES');
+    const { buffer, filename } = await this.invoices.duesPdf(
+      customerId,
+      DUES_SCOPES.includes(scope as DuesScope) ? (scope as DuesScope) : 'DUES',
+      from,
+      to,
+    );
     return new StreamableFile(buffer, {
       type: 'application/pdf',
       disposition: `inline; filename="${filename}"`,
@@ -100,7 +112,7 @@ export class InvoicesController {
     @Param('customerId', ParseUUIDPipe) customerId: string,
     @Body() dto: SaveDuesReportDto,
   ) {
-    return this.invoices.saveDuesReport(customerId, dto.status, dto.scope);
+    return this.invoices.saveDuesReport(customerId, dto.status, dto.scope, dto.from, dto.to);
   }
 
   @Patch('dues-reports/:reportId/sent')
@@ -123,8 +135,14 @@ export class InvoicesController {
   }
 
   @Get()
-  list(@Query('payment') payment?: string, @Query('customer') customer?: string) {
-    return this.invoices.list(payment, customer);
+  // ?from=YYYY-MM-DD&to=YYYY-MM-DD limits the list to invoices issued in those dates
+  list(
+    @Query('payment') payment?: string,
+    @Query('customer') customer?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.invoices.list(payment, customer, from, to);
   }
 
   @Get(':id/pdf')

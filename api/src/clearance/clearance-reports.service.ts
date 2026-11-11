@@ -9,6 +9,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { buildDuesPdf } from '../invoices/dues-pdf.js';
 import type { DuesBrand, DuesData, DuesItem, StatementScope } from '../invoices/dues-pdf.js';
 import { COMPANY } from './clearance.pdf.js';
+import { dayRange } from '../common/date-range.js';
 
 // Which invoices a clearance statement lists: the same choices as the filters on the clearance invoices page.
 export type ClearanceScope = Exclude<StatementScope, 'DUES'>;
@@ -53,14 +54,17 @@ export class ClearanceReportsService {
     }
   }
 
-  private async statementFor(customer: string, scope: ClearanceScope): Promise<DuesData> {
+  private async statementFor(customer: string, scope: ClearanceScope, from?: string, to?: string): Promise<DuesData> {
     const name = customer.trim();
     if (!name) throw new BadRequestException('Choose the customer');
+    const range = dayRange(from, to);
     const jobs = await this.prisma.clearanceJob.findMany({
       where: {
         customerName: { equals: name, mode: 'insensitive' },
         invoiceNo: { not: null },
         payment: this.paymentWhere(scope),
+        // invoice date; an unsent draft has none yet, so its created date counts
+        ...(range && { OR: [{ invoicedAt: range }, { invoicedAt: null, createdAt: range }] }),
       },
       orderBy: { invoicedAt: 'asc' },
     });
@@ -101,6 +105,7 @@ export class ClearanceReportsService {
     const sum = (f: (i: DuesItem) => number) => round(items.reduce((a, i) => a + f(i), 0));
     return {
       scope,
+      period: from || to ? { from: from || undefined, to: to || undefined } : undefined,
       customer: {
         name: latest.customerName,
         address: latest.customerAddress,
@@ -115,8 +120,8 @@ export class ClearanceReportsService {
   }
 
   // "View report": built from today's figures, nothing is saved.
-  async livePdf(customer: string, scope: ClearanceScope) {
-    const data = await this.statementFor(customer, scope);
+  async livePdf(customer: string, scope: ClearanceScope, from?: string, to?: string) {
+    const data = await this.statementFor(customer, scope, from, to);
     const buffer = await buildDuesPdf({ ...data, brand: TNI_BRAND, date: new Date() });
     return { buffer, filename: `Statement - ${this.safeName(data.customer.name)}.pdf` };
   }
@@ -144,10 +149,12 @@ export class ClearanceReportsService {
   };
 
   // "Save draft" (DRAFT) or a copy of what was shared (SENT). The figures are frozen in the snapshot.
-  async save(customer: string, scope: ClearanceScope, status: 'DRAFT' | 'SENT' = 'DRAFT') {
-    const data = await this.statementFor(customer, scope);
+  async save(customer: string, scope: ClearanceScope, status: 'DRAFT' | 'SENT' = 'DRAFT', from?: string, to?: string) {
+    const data = await this.statementFor(customer, scope, from, to);
     if (data.items.length === 0) {
-      throw new BadRequestException('This customer has no invoices for this report');
+      throw new BadRequestException(
+        from || to ? 'This customer has no invoices in the selected dates' : 'This customer has no invoices for this report',
+      );
     }
     return this.prisma.clearanceReport.create({
       data: {

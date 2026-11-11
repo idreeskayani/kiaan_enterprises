@@ -14,6 +14,7 @@ import {
   ShipmentStatus,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { dayRange } from '../common/date-range.js';
 import type { CreateShipmentDto } from '../shipments/dto.js';
 import type { AddCostDto, PaymentInfoDto } from './dto.js';
 import { ShipmentsService } from '../shipments/shipments.service.js';
@@ -206,7 +207,12 @@ export class InvoicesService {
     return { buffer, filename: 'invoice-preview.pdf' };
   }
 
-  list(payment?: string, customer?: string) {
+  // "YYYY-MM-DD" day range in Pakistan time (UTC+5), so a report for "this month" matches the office calendar
+  private dateRange(from?: string, to?: string): Prisma.DateTimeFilter | undefined {
+    return dayRange(from, to);
+  }
+
+  list(payment?: string, customer?: string, from?: string, to?: string) {
     const paymentWhere =
       payment === 'PAID'
         ? { status: InvoiceStatus.PAID }
@@ -222,9 +228,10 @@ export class InvoicesService {
     const customerWhere = name
       ? { OR: [{ customer: { name: like } }, { shipment: { customer: { name: like } } }] }
       : {};
+    const range = this.dateRange(from, to);
     return this.prisma.invoice
       .findMany({
-        where: { ...paymentWhere, ...customerWhere },
+        where: { ...paymentWhere, ...customerWhere, ...(range && { issuedAt: range }) },
         include: {
           customer: { select: { name: true } },
           shipment: {
@@ -274,9 +281,10 @@ export class InvoicesService {
   }
 
   // Dashboard figures. Drafts and cancelled invoices are not counted as invoiced.
-  async summary() {
+  async summary(from?: string, to?: string) {
+    const range = this.dateRange(from, to);
     const rows = await this.prisma.invoice.findMany({
-      where: { status: { in: [InvoiceStatus.ISSUED, InvoiceStatus.PAID] } },
+      where: { status: { in: [InvoiceStatus.ISSUED, InvoiceStatus.PAID] }, ...(range && { issuedAt: range }) },
       select: { status: true, total: true, dueAmount: true, costs: { select: { amount: true } } },
     });
     let invoiced = 0;
@@ -436,8 +444,10 @@ export class InvoicesService {
   }
 
   // All debits of all invoices. ?vendor= partial company name, ?payment= PAID | UNPAID | PARTIAL
-  async listCosts(vendor?: string, payment?: string) {
+  async listCosts(vendor?: string, payment?: string, from?: string, to?: string) {
     const where: Prisma.InvoiceCostWhereInput = {};
+    const range = this.dateRange(from, to);
+    if (range) where.incurredAt = range; // the debit's own date
     const name = vendor?.trim();
     if (name) where.vendor = { contains: name, mode: 'insensitive' };
     if (payment && payment in CostPayment) where.payment = payment as CostPayment;
@@ -549,10 +559,16 @@ export class InvoicesService {
 
   // ---- remaining dues statement (customer ledger)
   // Issued invoices that are not fully paid. Drafts, paid and cancelled invoices are left out.
-  private async duesFor(customerId: string, scope: DuesScope = 'DUES'): Promise<DuesData> {
+  private async duesFor(
+    customerId: string,
+    scope: DuesScope = 'DUES',
+    from?: string,
+    to?: string,
+  ): Promise<DuesData> {
     const customer = await this.prisma.customer.findUnique({ where: { id: customerId } });
     if (!customer) throw new NotFoundException('Customer not found');
 
+    const range = this.dateRange(from, to);
     const invoices = await this.prisma.invoice.findMany({
       where: {
         // ALL = issued + paid. DUES / UNPAID = issued. PAID and DRAFT = just those. Cancelled are never listed.
@@ -565,6 +581,7 @@ export class InvoicesService {
                 ? InvoiceStatus.DRAFT
                 : InvoiceStatus.ISSUED,
         OR: [{ customerId }, { shipment: { customerId } }],
+        ...(range && { issuedAt: range }),
       },
       include: { shipment: { select: { blAwbNo: true, hawbNo: true } } },
       orderBy: { issuedAt: 'asc' },
@@ -598,6 +615,7 @@ export class InvoicesService {
     const sum = (f: (i: DuesItem) => number) => round(items.reduce((a, i) => a + f(i), 0));
     return {
       scope,
+      period: from || to ? { from: from || undefined, to: to || undefined } : undefined,
       customer: {
         name: customer.name,
         address: customer.address,
@@ -616,8 +634,8 @@ export class InvoicesService {
   }
 
   // "View report": built from today's figures, nothing is saved.
-  async duesPdf(customerId: string, scope: DuesScope = 'DUES') {
-    const data = await this.duesFor(customerId, scope);
+  async duesPdf(customerId: string, scope: DuesScope = 'DUES', from?: string, to?: string) {
+    const data = await this.duesFor(customerId, scope, from, to);
     const buffer = await buildDuesPdf({ ...data, date: new Date() });
     const kind = scope === 'DUES' ? 'Dues statement' : 'Statement';
     return { buffer, filename: `${kind} - ${this.safeName(data.customer.name)}.pdf` };
@@ -639,11 +657,15 @@ export class InvoicesService {
     customerId: string,
     status: 'DRAFT' | 'SENT' = 'DRAFT',
     scope: DuesScope = 'DUES',
+    from?: string,
+    to?: string,
   ) {
-    const data = await this.duesFor(customerId, scope);
+    const data = await this.duesFor(customerId, scope, from, to);
     if (data.items.length === 0) {
       throw new BadRequestException(
-        scope === 'DUES' ? 'This customer has no remaining dues' : 'This customer has no invoices for this report',
+        from || to
+          ? 'This customer has no invoices in the selected dates'
+          : scope === 'DUES' ? 'This customer has no remaining dues' : 'This customer has no invoices for this report',
       );
     }
     const reportNo = await this.nextDuesReportNo();

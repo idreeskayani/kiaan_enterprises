@@ -30,8 +30,8 @@ export class ShipmentsController {
   }
 
   @Get('summary')
-  summary() {
-    return this.shipments.summary();
+  summary(@Query('from') from?: string, @Query('to') to?: string) {
+    return this.shipments.summary(from, to);
   }
 
   @Post()
@@ -41,8 +41,8 @@ export class ShipmentsController {
   }
 
   @Get()
-  list(@Query('status') status?: ShipmentStatus) {
-    return this.shipments.list(status);
+  list(@Query('status') status?: ShipmentStatus, @Query('from') from?: string, @Query('to') to?: string) {
+    return this.shipments.list(status, from, to);
   }
 
   @Get(':id')

@@ -37,8 +37,8 @@ export class ClearanceController {
   ) {}
 
   @Get('stats')
-  stats() {
-    return this.clearance.stats();
+  stats(@Query('from') from?: string, @Query('to') to?: string) {
+    return this.clearance.stats(from, to);
   }
 
   // customer names for the search list of the invoices page
@@ -55,10 +55,17 @@ export class ClearanceController {
 
   // ---- customer statements (same as the freight reports). Declared before the ':id' routes.
   @Get('reports/live')
-  async livePdf(@Query('customer') customer = '', @Query('scope') scope?: string) {
+  async livePdf(
+    @Query('customer') customer = '',
+    @Query('scope') scope?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
     const { buffer, filename } = await this.reports.livePdf(
       customer,
       CLEARANCE_SCOPES.includes(scope as ClearanceScope) ? (scope as ClearanceScope) : 'ALL',
+      from,
+      to,
     );
     return new StreamableFile(buffer, {
       type: 'application/pdf',
@@ -73,7 +80,7 @@ export class ClearanceController {
 
   @Post('reports')
   saveReport(@Body() dto: SaveClearanceReportDto) {
-    return this.reports.save(dto.customer, dto.scope ?? 'ALL', dto.status);
+    return this.reports.save(dto.customer, dto.scope ?? 'ALL', dto.status, dto.from, dto.to);
   }
 
   @Patch('reports/:reportId/sent')
@@ -101,8 +108,10 @@ export class ClearanceController {
     @Query('payment') payment?: string,
     @Query('q') q?: string,
     @Query('scope') scope?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
   ) {
-    return this.clearance.list(status, payment, q, scope);
+    return this.clearance.list(status, payment, q, scope, from, to);
   }
 
   @Post()

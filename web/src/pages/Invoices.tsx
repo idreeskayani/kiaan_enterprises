@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { api, getUser, openPdf, openPdfPath } from '../api';
 import { Badge, fmt } from '../components';
 import { ShareButton } from '../Share';
+import { DateRange } from '../DateRange';
 import CostsModal from '../CostsModal';
 import { PayFields, PaymentNote, emptyPay, payBody, payError as checkPay, type PayInfo } from '../PaymentForm';
 
@@ -11,6 +12,9 @@ export default function Invoices() {
   const [payment, setPayment] = useState('');
   const [customer, setCustomer] = useState('');
   const [customers, setCustomers] = useState<any[]>([]);
+  // date filter (YYYY-MM-DD, empty = no limit): narrows the list and the report
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
   const [rows, setRows] = useState<any[]>([]);
   const [costsFor, setCostsFor] = useState<any>(null);
   const [error, setError] = useState('');
@@ -33,6 +37,8 @@ export default function Invoices() {
       const qs = new URLSearchParams();
       if (payment) qs.set('payment', payment);
       if (customer.trim()) qs.set('customer', customer.trim());
+      if (from) qs.set('from', from);
+      if (to) qs.set('to', to);
       const q = qs.toString();
       setRows(await api(`/invoices${q ? `?${q}` : ''}`));
     } catch (e) {
@@ -45,7 +51,7 @@ export default function Invoices() {
     const t = setTimeout(load, customer ? 300 : 0);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [payment, customer]);
+  }, [payment, customer, from, to]);
 
   // customer names for the search suggestions
   useEffect(() => {
@@ -56,7 +62,10 @@ export default function Invoices() {
   const isDues = payment === 'DUES';
   // the report lists whatever the filter shows (All, Draft, Unpaid, Remaining dues, Paid) for the chosen customer
   const scope = payment || 'ALL';
-  const scopeQs = `?scope=${scope}`;
+  const rangeBad = !!from && !!to && from > to;
+  const scopeQs = `?scope=${scope}${from ? `&from=${from}` : ''}${to ? `&to=${to}` : ''}`;
+  const rangeText = from || to ? ` · ${from || '…'} to ${to || '…'}` : '';
+
   const scopeLabel: Record<string, string> = {
     ALL: 'All invoices', DRAFT: 'Draft', UNPAID: 'Unpaid', DUES: 'Remaining dues', PAID: 'Paid',
   };
@@ -67,7 +76,7 @@ export default function Invoices() {
   const shown = selected ? rows.filter((r) => r.customerName === selected.name) : rows;
   const totalRemaining = shown.reduce((a, r) => a + Number(r.remaining ?? 0), 0);
   const totalProfit = shown.reduce((a, r) => a + Number(r.profit ?? 0), 0);
-  const canReport = !!selected && shown.length > 0;
+  const canReport = !!selected && shown.length > 0 && !rangeBad;
 
   async function loadReports() {
     if (!selected) return;
@@ -94,7 +103,7 @@ export default function Invoices() {
     setError('');
     setReportBusy(true);
     try {
-      const r = await api(`/invoices/dues/${selected.id}/report`, { method: 'POST', body: { status, scope } });
+      const r = await api(`/invoices/dues/${selected.id}/report`, { method: 'POST', body: { status, scope, from: from || undefined, to: to || undefined } });
       if (status === 'DRAFT') setReportNote({ id: selected.id, text: `Draft saved as ${r.reportNo}` });
       await loadReports();
     } catch (e) {
@@ -227,6 +236,7 @@ export default function Invoices() {
           </select>
         </div>
       </div>
+      <DateRange from={from} to={to} setFrom={setFrom} setTo={setTo} bad={rangeBad} />
       {error && <div className="error">{error}</div>}
       {isDues && (
         <div className="card" style={{ display: 'flex', gap: 36, flexWrap: 'wrap', alignItems: 'flex-end' }}>
@@ -346,7 +356,9 @@ export default function Invoices() {
               );
             })}
             {shown.length === 0 && (
-              <tr><td colSpan={isDues ? 11 : 10} className="muted">No invoices found.</td></tr>
+              <tr><td colSpan={isDues ? 11 : 10} className="muted">
+                {from || to ? 'No invoices in the selected dates.' : 'No invoices found.'}
+              </td></tr>
             )}
           </tbody>
         </table>
@@ -387,8 +399,13 @@ export default function Invoices() {
         )}
         {selected && shown.length === 0 && (
           <p className="muted" style={{ margin: '10px 0 0' }}>
-            {scope === 'DUES' ? 'This customer has no remaining dues.' : 'No invoices to report for this filter.'}
+            {from || to
+              ? 'No invoices for this customer in the selected dates.'
+              : scope === 'DUES' ? 'This customer has no remaining dues.' : 'No invoices to report for this filter.'}
           </p>
+        )}
+        {canReport && (from || to) && (
+          <p className="muted" style={{ margin: '10px 0 0' }}>Report period{rangeText.replace(' ·', ':')}</p>
         )}
         {reportNote && reportNote.id === selected?.id && (
           <p className="muted" style={{ margin: '10px 0 0' }}>{reportNote.text}</p>

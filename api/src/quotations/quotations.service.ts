@@ -8,6 +8,7 @@ import { Prisma, QuotationStatus, ShipmentStatus } from '@prisma/client';
 import { buildInvoicePdf } from '../invoices/invoice-pdf.js';
 import type { PdfInvoice } from '../invoices/invoice-pdf.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { dayRange } from '../common/date-range.js';
 import type { CreateShipmentDto } from '../shipments/dto.js';
 import { ShipmentsService } from '../shipments/shipments.service.js';
 import type { CreateQuotationDto } from './dto.js';
@@ -68,10 +69,11 @@ export class QuotationsService {
     });
   }
 
-  async list(status?: QuotationStatus) {
+  async list(status?: QuotationStatus, from?: string, to?: string) {
     await this.expireOld();
+    const range = dayRange(from, to);
     return this.prisma.quotation.findMany({
-      where: status ? { status } : undefined,
+      where: { ...(status && { status }), ...(range && { createdAt: range }) },
       include: { customer: { select: { name: true } }, shipment: { select: { id: true, refNo: true } } },
       orderBy: { createdAt: 'desc' },
     });
