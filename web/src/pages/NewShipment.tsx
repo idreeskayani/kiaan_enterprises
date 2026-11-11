@@ -3,7 +3,6 @@ import { useLocation, useNavigate, useParams, useSearchParams } from 'react-rout
 import { api, previewPdf } from '../api';
 import { ShareButton } from '../Share';
 import { Breakdown} from '../components';
-import PartyPicker from '../PartyPicker';
 
 type Item = { lengthCm: string; widthCm: string; heightCm: string; weightKg: string; qty: string };
 type Extra = { label: string; amount: string; currency: string; exRate: string };
@@ -61,6 +60,10 @@ function QuotationForm({ editId, editType }: { editId?: string; editType?: 'quot
 
   // customer
   const [customerSel, setCustomerSel] = useState('');
+  const [cName, setCName] = useState('');
+  const [cPhone, setCPhone] = useState('');
+  const [cAddress, setCAddress] = useState('');
+  const [cTax, setCTax] = useState('');
 
   // route
   const [mode, setMode] = useState('AIR');
@@ -78,15 +81,15 @@ function QuotationForm({ editId, editType }: { editId?: string; editType?: 'quot
   const [handling, setHandling] = useState('');
   const [volDivisor, setVolDivisor] = useState('');
   const [freightOverride, setFreightOverride] = useState('');
-  // typed weights: freight per kg is multiplied with the greater of the two
-  const [grossWeight, setGrossWeight] = useState('');
-  const [chargeableWeight, setChargeableWeight] = useState('');
   const [doCharges, setDoCharges] = useState('');
   const [extras, setExtras] = useState<Extra[]>([]);
   const [saveRate, setSaveRate] = useState(true);
   
   // shipment details
   const [goodsValue, setGoodsValue] = useState('');
+  // typed weights: freight is charged on whichever is greater (empty = taken from the packages)
+  const [grossWeight, setGrossWeight] = useState('');
+  const [chargeableWeight, setChargeableWeight] = useState('');
   const [blAwbNo, setBlAwbNo] = useState('');
   const [hawbNo, setHawbNo] = useState('');
   const [flight, setFlight] = useState('');
@@ -168,8 +171,6 @@ function QuotationForm({ editId, editType }: { editId?: string; editType?: 'quot
         setHandling(t(p.rate?.handling));
         setVolDivisor(t(p.rate?.volDivisor));
         setFreightOverride(keep(p.freightOverride));
-        setGrossWeight(t(p.grossWeightKg));
-        setChargeableWeight(t(p.chargeableWeightKg));
         setDoCharges(keep(p.doCharges));
         setExtras(
           (p.extraCharges ?? []).map((e: any) => ({
@@ -178,6 +179,8 @@ function QuotationForm({ editId, editType }: { editId?: string; editType?: 'quot
         );
         setSaveRate(false);
         setGoodsValue(t(p.goodsValue));
+        setGrossWeight(t(p.grossWeightKg));
+        setChargeableWeight(t(p.chargeableWeightKg));
         setBlAwbNo(p.blAwbNo ?? '');
         setHawbNo(p.hawbNo ?? '');
         setFlight(p.flight ?? '');
@@ -187,8 +190,8 @@ function QuotationForm({ editId, editType }: { editId?: string; editType?: 'quot
         setShowMore(Object.keys(d).some((k) => k !== 'direction'));
         setItems(
           (p.items ?? []).map((i: any) => ({
-            lengthCm: t(Number(i.lengthCm)), widthCm: t(Number(i.widthCm)), heightCm: t(Number(i.heightCm)),
-            weightKg: t(Number(i.weightKg)), qty: String(i.qty),
+            lengthCm: String(i.lengthCm), widthCm: String(i.widthCm), heightCm: String(i.heightCm),
+            weightKg: String(i.weightKg), qty: String(i.qty),
           })),
         );
         setEditQuote(q);
@@ -237,8 +240,9 @@ function QuotationForm({ editId, editType }: { editId?: string; editType?: 'quot
   // typed size in the chosen unit -> cm (2 decimals, same as what is stored)
   const toCm = (v: string) => Math.round(num(v) * UNITS[dimUnit] * 100) / 100;
 
-  // only the quantity is required; size and weight can be left empty
-  const itemsValid = items.every((i) => num(i.qty) >= 1);
+  const itemsValid = items.every(
+    (i) => num(i.qty) >= 1, // size and weight are optional, only the quantity is required
+  );
   const hasFreight = freightOverride !== '' || num(ratePerUnit) > 0;
   const exOk = currency === 'PKR' || num(exRate) > 0;
   const extrasOk = extras.every(
@@ -258,8 +262,8 @@ function QuotationForm({ editId, editType }: { editId?: string; editType?: 'quot
     destination: destination.trim(),
     viaPoints: via.map((p) => p.trim()).filter(Boolean),
     goodsValue: num(goodsValue),
-    grossWeightKg: num(grossWeight) > 0 ? num(grossWeight) : undefined,
-    chargeableWeightKg: num(chargeableWeight) > 0 ? num(chargeableWeight) : undefined,
+    grossWeightKg: grossWeight !== '' ? num(grossWeight) : undefined,
+    chargeableWeightKg: chargeableWeight !== '' ? num(chargeableWeight) : undefined,
     rate: {
       ratePerUnit: num(ratePerUnit),
       minCharge: num(minCharge),
@@ -315,7 +319,7 @@ function QuotationForm({ editId, editType }: { editId?: string; editType?: 'quot
   }, [
     mode, origin, destination, goodsValue, freightLabel, currency, exRate,
     ratePerUnit, minCharge, fuelPct, handling, volDivisor, freightOverride, doCharges,
-    grossWeight, chargeableWeight, items, extras,
+    items, extras, grossWeight, chargeableWeight,
   ]);
 
   const setItem = (idx: number, k: keyof Item, v: string) =>
@@ -323,6 +327,27 @@ function QuotationForm({ editId, editType }: { editId?: string; editType?: 'quot
   const setExtra = (idx: number, patch: Partial<Extra>) =>
     setExtras(extras.map((e, i) => (i === idx ? { ...e, ...patch } : e)));
   const setD = (k: string, v: string) => setDet({ ...det, [k]: v });
+
+  async function saveCustomer() {
+    if (!cName.trim()) return setError('Enter the customer name');
+    try {
+      const c = await api('/customers', {
+        method: 'POST',
+        body: {
+          name: cName.trim(),
+          phone: cPhone.trim() || undefined,
+          address: cAddress.trim() || undefined,
+          taxNumber: cTax.trim() || undefined,
+        },
+      });
+      setCustomers([...customers, c].sort((a, b) => a.name.localeCompare(b.name)));
+      setCustomerSel(c.id);
+      setCName(''); setCPhone(''); setCAddress(''); setCTax('');
+      setError('');
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
 
   async function saveRateCard() {
     const o = origin.trim();
@@ -348,7 +373,7 @@ function QuotationForm({ editId, editType }: { editId?: string; editType?: 'quot
     if (!hasFreight) return 'Enter the freight rate or a total freight amount';
     if (!exOk) return `Enter the exchange rate (PKR per 1 ${currency})`;
     if (!extrasOk) return 'Enter the exchange rate for the other charges';
-    if (!itemsValid) return 'Enter the quantity of every package';
+    if (!itemsValid) return 'Fill in the size and weight of every package';
     return '';
   }
 
@@ -526,15 +551,30 @@ function QuotationForm({ editId, editType }: { editId?: string; editType?: 'quot
       
       <div className="card">
         <h3>Customer</h3>
-        <PartyPicker
-          label="Customer"
-          noun="customer"
-          endpoint="/customers"
-          list={customers}
-          value={customerSel}
-          onChange={setCustomerSel}
-          onList={setCustomers}
-        />
+        <div className="row">
+          <div>
+            <label>Customer</label>
+            <select value={customerSel} onChange={(e) => setCustomerSel(e.target.value)}>
+              <option value="">Select...</option>
+              {customers.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+              <option value={NEW}>+ Add new customer</option>
+            </select>
+          </div>
+        </div>
+        {customerSel === NEW && (
+          <>
+            <br />
+            <div className="row">
+              <div><label>Name</label><input value={cName} onChange={(e) => setCName(e.target.value)} /></div>
+              <div><label>Phone</label><input value={cPhone} onChange={(e) => setCPhone(e.target.value)} /></div>
+              <div><label>Address</label><input value={cAddress} onChange={(e) => setCAddress(e.target.value)} /></div>
+              <div><label>NTN / Tax number</label><input value={cTax} onChange={(e) => setCTax(e.target.value)} /></div>
+              <button type="button" onClick={saveCustomer}>Save customer</button>
+            </div>
+          </>
+        )}
       </div>
 
       <div className="card">
@@ -679,25 +719,18 @@ function QuotationForm({ editId, editType }: { editId?: string; editType?: 'quot
         <div className="row">
           <div>
             <label>Gross weight (kg)</label>
-            <input
-              type="number" min="0" step="any" value={grossWeight}
-              placeholder="Leave empty to add up the packages"
-              onChange={(e) => setGrossWeight(e.target.value)}
-            />
+            <input type="number" min="0" step="any" value={grossWeight} onChange={(e) => setGrossWeight(e.target.value)} />
           </div>
           <div>
             <label>Chargeable weight (kg)</label>
-            <input
-              type="number" min="0" step="any" value={chargeableWeight}
-              placeholder="Leave empty to use package sizes"
-              onChange={(e) => setChargeableWeight(e.target.value)}
-            />
+            <input type="number" min="0" step="any" value={chargeableWeight} onChange={(e) => setChargeableWeight(e.target.value)} />
           </div>
           <div style={{ flex: 2 }}>
-            <span className="muted">
-              The rate per kg is multiplied with whichever is greater: gross weight or chargeable weight.
-              Both are shown on the invoice.
-            </span>
+            <p className="muted" style={{ margin: '24px 0 0' }}>
+              {mode === 'SEA'
+                ? 'Sea freight is charged on CBM. Both weights are printed on the invoice.'
+                : 'The rate per kg is multiplied by whichever is greater. Leave empty to use the package weights and sizes.'}
+            </p>
           </div>
         </div>
         <br />
@@ -831,7 +864,7 @@ function QuotationForm({ editId, editType }: { editId?: string; editType?: 'quot
 
       <div className="card">
         <div className="row" style={{ alignItems: 'center', marginBottom: 10 }}>
-          <h3 style={{ margin: 0, flex: 3 }}>Packages ({dimUnit} / kg) <span className="muted" style={{ fontWeight: 400, fontSize: 13 }}>only quantity is required</span></h3>
+          <h3 style={{ margin: 0, flex: 3 }}>Packages ({dimUnit} / kg)</h3>
           <div style={{ maxWidth: 160 }}>
             <label>Dimension unit</label>
             <select value={dimUnit} onChange={(e) => changeUnit(e.target.value as 'cm' | 'inch' | 'm')}>
@@ -841,6 +874,7 @@ function QuotationForm({ editId, editType }: { editId?: string; editType?: 'quot
             </select>
           </div>
         </div>
+        <p className="muted" style={{ margin: '0 0 10px' }}>Size and weight are optional. Only the quantity is required.</p>
         {items.map((it, idx) => (
           <div className="row" key={idx} style={{ marginBottom: 10 }}>
             {(['lengthCm', 'widthCm', 'heightCm', 'weightKg', 'qty'] as (keyof Item)[]).map((k) => (

@@ -112,3 +112,21 @@ export async function openPdfPath(path: string, win?: Window | null) {
   }
   showBlob(await res.blob(), win);
 }
+
+// Saves any file route of the API (used for the report CSV, which opens in Excel).
+export async function downloadPath(path: string, filename: string) {
+  const res = await fetch(`${BASE}${path}`, { headers: { Authorization: `Bearer ${getToken()}` } });
+  if (!res.ok) {
+    const data = await res.json().catch(() => null);
+    const m = data?.message;
+    throw new Error(Array.isArray(m) ? m.join(', ') : (m ?? 'Could not download the file'));
+  }
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}

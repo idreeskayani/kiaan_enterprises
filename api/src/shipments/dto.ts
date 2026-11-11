@@ -17,8 +17,8 @@ import {
 } from 'class-validator';
 import { Mode, ShipmentStatus } from '@prisma/client';
 
+// Only the quantity is required. Size and weight are optional (empty = 0).
 export class ItemDto {
-  // Only qty is required. Size and weight are optional (a missing one is saved as 0).
   @IsOptional() @IsNumber() @Min(0) lengthCm?: number;
   @IsOptional() @IsNumber() @Min(0) widthCm?: number;
   @IsOptional() @IsNumber() @Min(0) heightCm?: number;
@@ -50,7 +50,7 @@ export class QuoteDto {
   @IsOptional() @IsArray() @IsString({ each: true }) viaPoints?: string[];
   @IsOptional() @IsNumber() @Min(0) goodsValue?: number;
 
-  // Typed weights. Empty = worked out from the packages. Freight per kg is multiplied with the greater one.
+  // Typed weights. Freight is charged on whichever is greater; empty = taken from the packages
   @IsOptional() @IsNumber() @Min(0) grossWeightKg?: number;
   @IsOptional() @IsNumber() @Min(0) chargeableWeightKg?: number;
 

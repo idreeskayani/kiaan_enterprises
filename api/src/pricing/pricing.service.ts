@@ -1,13 +1,10 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { computeWeights } from './weights.js';
-import type { ManualWeights } from './weights.js';
 
-// Size and weight are optional (only qty is required); a missing value counts as 0.
 export type PricingItem = {
-  lengthCm?: number | null;
-  widthCm?: number | null;
-  heightCm?: number | null;
-  weightKg?: number | null;
+  lengthCm?: number;
+  widthCm?: number;
+  heightCm?: number;
+  weightKg?: number;
   qty: number;
 };
 
@@ -34,6 +31,9 @@ export type ChargeOptions = {
   doCharges: number; // PKR
   extras: ExtraCharge[];
   freightLabel?: string | null;
+  // weights typed on the form (empty = worked out from the packages)
+  grossKg?: number | null;
+  chargeableKg?: number | null;
 };
 
 export type PricedLine = {
@@ -49,17 +49,34 @@ const FREIGHT_LABEL = { AIR: 'Air Freight', SEA: 'Sea Freight', ROAD: 'Road Frei
 
 @Injectable()
 export class PricingService {
-  calculate(items: PricingItem[], rate: PricingRate, opts: ChargeOptions, manual?: ManualWeights | null) {
-    const w = computeWeights(items, rate.mode, rate.volDivisor, manual);
-    const actualKg = w.grossKg;
-    const volKg = w.volumetricKg;
-    const cbm = w.cbm;
+  calculate(items: PricingItem[], rate: PricingRate, opts: ChargeOptions) {
+    const divisor =
+      rate.volDivisor && rate.volDivisor > 0
+        ? rate.volDivisor
+        : rate.mode === 'ROAD'
+          ? 4000
+          : 5000;
 
-    // freight per kg is multiplied with the greater of gross and chargeable weight
-    const chargeableKg = w.billableKg;
-    const units = rate.mode === 'SEA' ? cbm : chargeableKg;
+    const vol = (i: PricingItem) => (i.lengthCm ?? 0) * (i.widthCm ?? 0) * (i.heightCm ?? 0);
+    const packagesKg = items.reduce((s, i) => s + (i.weightKg ?? 0) * i.qty, 0);
+    const volKg = items.reduce((s, i) => s + (vol(i) / divisor) * i.qty, 0);
+    const cbm = items.reduce((s, i) => s + (vol(i) / 1_000_000) * i.qty, 0);
+
+    // typed weights win; otherwise they come from the packages (gross) and the sizes (volumetric)
+    const grossKg = (opts.grossKg ?? 0) > 0 ? (opts.grossKg as number) : packagesKg;
+    const chargeableKg =
+      (opts.chargeableKg ?? 0) > 0 ? (opts.chargeableKg as number) : Math.max(grossKg, volKg);
+    // freight per kg is multiplied by whichever of the two is greater
+    const billedKg = Math.max(grossKg, chargeableKg);
+    const units = rate.mode === 'SEA' ? cbm : billedKg;
 
     const overridden = rate.freightOverride != null;
+    if (!overridden && rate.mode === 'SEA' && !(cbm > 0)) {
+      throw new BadRequestException('Enter the package size (length, width, height) to calculate sea freight');
+    }
+    if (!overridden && rate.mode !== 'SEA' && !(billedKg > 0)) {
+      throw new BadRequestException('Enter the gross weight or the chargeable weight (or the package weights)');
+    }
     const base = overridden
       ? (rate.freightOverride as number)
       : Math.max(units * rate.ratePerUnit, rate.minCharge);
@@ -119,14 +136,11 @@ export class PricingService {
     }
 
     return {
-      actualKg: r2(actualKg),
-      grossKg: w.grossKg,
+      actualKg: r2(grossKg), // gross weight
       volumetricKg: r2(volKg),
       cbm: r2(cbm),
-      // the weight shown as "chargeable" on screens and the invoice
-      chargeableKg: w.chargeableKg,
-      // the weight the per-kg rate was multiplied with (greater of gross and chargeable)
-      billableKg: w.billableKg,
+      chargeableKg: r2(chargeableKg),
+      billedKg: r2(billedKg), // the weight the freight rate is multiplied by (the greater of the two)
       freightOverridden: overridden,
       currency: opts.currency,
       exRate: isPkr ? null : ex,

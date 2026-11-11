@@ -63,16 +63,6 @@ model Customer {
   duesReports DuesReport[]
 }
 
-// A company we pay (airline, agent, transporter ...). Costs keep the vendor's name as text.
-model Vendor {
-  id        String   @id @default(uuid())
-  name      String   @unique
-  phone     String?
-  address   String?
-  taxNumber String?
-  createdAt DateTime @default(now())
-}
-
 model Shipment {
   id              String          @id @default(uuid())
   refNo           String          @unique
@@ -95,10 +85,11 @@ model Shipment {
   handling        Decimal?        @db.Decimal(10, 2)
   volDivisor      Int?
   freightOverride Decimal?        @db.Decimal(14, 2)
-  grossWeightKg      Decimal?     @db.Decimal(10, 2)
-  chargeableWeightKg Decimal?     @db.Decimal(10, 2)
   doCharges       Decimal?        @db.Decimal(14, 2)
   freightLabel    String?
+  // weights typed on the freight form. Freight is charged on whichever is greater; empty = worked out from the packages
+  grossWeightKg      Decimal?     @db.Decimal(10, 2)
+  chargeableWeightKg Decimal?     @db.Decimal(10, 2)
   currency        String          @default("USD")
   exRate          Decimal?        @db.Decimal(12, 4)
   hawbNo          String?

@@ -10,6 +10,7 @@ import { PrismaModule } from './prisma/prisma.module.js';
 import { ShipmentsModule } from './shipments/shipments.module.js';
 import { ClearanceModule } from './clearance/clearance.module.js';
 import { QuotationsModule } from './quotations/quotations.module.js';
+import { ReportsModule } from './reports/reports.module.js';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
@@ -21,6 +22,7 @@ import { QuotationsModule } from './quotations/quotations.module.js';
     InvoicesModule,
     ClearanceModule,
     QuotationsModule,
+    ReportsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

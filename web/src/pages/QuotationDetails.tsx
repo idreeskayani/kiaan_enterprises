@@ -77,8 +77,8 @@ export default function QuotationDetail() {
           <tbody>
             {(p.items ?? []).map((i: any, idx: number) => (
               <tr key={idx}>
-                <td>{Number(i.lengthCm) > 0 || Number(i.widthCm) > 0 || Number(i.heightCm) > 0 ? `${Number(i.lengthCm)} × ${Number(i.widthCm)} × ${Number(i.heightCm)}` : '—'}</td>
-                <td className="num">{Number(i.weightKg) > 0 ? Number(i.weightKg) : '—'}</td>
+                <td>{Number(i.lengthCm) || Number(i.widthCm) || Number(i.heightCm) ? `${Number(i.lengthCm)} × ${Number(i.widthCm)} × ${Number(i.heightCm)}` : '-'}</td>
+                <td className="num">{Number(i.weightKg) || '-'}</td>
                 <td className="num">{i.qty}</td>
               </tr>
             ))}
