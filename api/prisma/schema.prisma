@@ -63,6 +63,15 @@ model Customer {
   duesReports DuesReport[]
 }
 
+model Vendor {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  phone     String?
+  address   String?
+  taxNumber String?
+  createdAt DateTime @default(now())
+}
+
 model Shipment {
   id              String          @id @default(uuid())
   refNo           String          @unique
