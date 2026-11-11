@@ -193,7 +193,8 @@ export default function ClearanceDetail() {
   if (!job) return <>{error ? <div className="error">{error}</div> : <p>Loading...</p>}</>;
 
   const isDraft = job.payment === 'DRAFT';
-  const locked = !!job.invoiceNo && !isDraft;
+  // a draft or an unpaid invoice can be edited; a paid or part paid one is locked
+  const locked = !!job.invoiceNo && !isDraft && job.payment !== 'UNPAID';
   const edit = canWork && !locked;
   const setD = (k: string, v: string) => {
     const next = { ...det, [k]: v };
@@ -229,7 +230,11 @@ export default function ClearanceDetail() {
       </div>
       {error && <div className="error">{error}</div>}
       {locked && (
-        <p className="muted">An invoice has been generated. Delete the invoice below to edit the details and charges.</p>
+        <p className="muted">
+          {job.payment === 'PAID'
+            ? 'This invoice is paid, so it cannot be edited. Mark it unpaid on the Invoices page to edit it.'
+            : 'A payment is recorded on this invoice, so it cannot be edited.'}
+        </p>
       )}
 
       <div className="card">

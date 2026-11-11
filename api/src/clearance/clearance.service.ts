@@ -272,8 +272,17 @@ export class ClearanceService {
 
   async update(id: string, dto: UpdateClearanceDto) {
     const job = await this.findOne(id);
-    if (job.invoiceNo && job.payment !== ClearancePayment.DRAFT) {
-      throw new ConflictException('Invoice already generated. Delete the invoice before editing.');
+    // a draft or an unpaid invoice can still be edited; once money is recorded (partly or fully paid) it is locked
+    if (
+      job.invoiceNo &&
+      job.payment !== ClearancePayment.DRAFT &&
+      job.payment !== ClearancePayment.UNPAID
+    ) {
+      throw new ConflictException(
+        job.payment === ClearancePayment.PAID
+          ? 'A paid invoice cannot be edited. Mark it unpaid first.'
+          : 'This invoice has a payment recorded, so it cannot be edited.',
+      );
     }
     const av = dto.assessableValue ?? Number(job.assessableValue);
     const existing = (job.lines as unknown as Line[]).map((l) => ({ code: l.code, amount: l.amount }));
@@ -460,6 +469,7 @@ export class ClearanceService {
       virNumber: job.virNumber,
       duties: job.duties,
       paidThroughPsid: job.paidThroughPsid,
+      modeOfTransport: job.modeOfTransport,
       containers: this.cleanContainers(job.containers),
       lines: (job.lines as unknown as Line[]).map((l) => ({ code: l.code, label: l.label, amount: l.amount })),
     });

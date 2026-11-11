@@ -261,6 +261,7 @@ export default function ClearanceInvoices() {
             {shown.map((r) => {
               const paid = r.payment === 'PAID';
               const partial = r.payment === 'PARTIAL';
+              const editable = r.payment === 'DRAFT' || r.payment === 'UNPAID'; // paid / part paid invoices are locked
               return (
                 <tr key={r.id}>
                   <td><Link to={`/clearance/jobs/${r.id}`}>{r.invoiceNo}</Link></td>
@@ -277,6 +278,14 @@ export default function ClearanceInvoices() {
                   <td>
                     <div className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
                       <button type="button" className="ghost small" onClick={() => view(r.id)}>View</button>
+                      {canWork && (editable ? (
+                        <Link to={`/clearance/jobs/${r.id}`}><button type="button" className="ghost small">Edit</button></Link>
+                      ) : (
+                        <button type="button" className="ghost small" disabled
+                          title={paid ? 'A paid invoice cannot be edited. Mark it unpaid first.' : 'An invoice with a payment recorded cannot be edited.'}>
+                          Edit
+                        </button>
+                      ))}
                       <ShareButton path={`/clearance/${r.id}/pdf`} invoiceNo={r.invoiceNo}
                         company="TNI Enterprises" customer={r.customerName} total={r.total}
                         onShared={() => r.payment === 'DRAFT' && api(`/clearance/${r.id}/issue`, { method: 'POST' }).then(() => setTick((t) => t + 1))} />

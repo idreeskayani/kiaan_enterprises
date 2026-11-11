@@ -57,6 +57,7 @@ export type ClearancePdfJob = {
   duties?: any;
   // the client paid the duties & taxes through PSID: printed, but not part of the total
   paidThroughPsid?: boolean;
+  modeOfTransport?: string | null;
   containers?: string[];
   lines: { code: string; label?: string; amount: any }[];
 };
@@ -66,17 +67,8 @@ const asset = (name: string) => {
   return existsSync(p) ? p : null;
 };
 
-// whole rupees with commas, and the paisa part (blank when zero)
-const split = (v: any) => {
-  const n = Math.round(Number(v) * 100) / 100;
-  const whole = Math.floor(n + 1e-9);
-  const paisa = Math.round((n - whole) * 100);
-  return {
-    rs: whole.toLocaleString('en-US'),
-    ps: paisa ? String(paisa).padStart(2, '0') : '',
-  };
-};
-
+// Same page as the Kiaan Freight invoice (boxed header, grey table headings, banking text, terms box).
+// Everything is sized to fit one page; only a very long charge list runs onto a second page.
 export function buildClearancePdf(job: ClearancePdfJob): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'A4', margin: 0 });
@@ -95,23 +87,9 @@ export function buildClearancePdf(job: ClearancePdfJob): Promise<Buffer> {
     const has = (v: any) => v != null && String(v).trim() !== '';
     const invDate = job.invoicedAt.toLocaleDateString('en-GB');
     const beDate = has(d.beDate) ? fmtDate(d.beDate) : '';
-    // the remaining header fields, two per row, skipping the empty ones
-    const optional: [string, string][] = (
-      [
-        ['Express On: ', d.expressOn],
-        ['No.Of.Pkgs: ', d.pcs],
-        ['Weight: ', has(d.weightKg) ? `${money(d.weightKg)} KG` : ''],
-        ['Invoice No: ', d.invoiceRef],
-        ['Party Code: ', d.partyCode],
-        ['G.D No: ', job.gdNo],
-        ['Dated ', beDate],
-        ['AWB No: - ', d.blNo],
-        ['HAWB No: ', d.hawbNo],
-      ] as [string, any][]
-    )
-      .filter(([, v]) => has(v))
-      .map(([k, v]) => [k, String(v)]);
-    // fixed charges in the bill's order; the NOC charges and the bilty rent come just before the agency commission (301)
+    const mode = has(job.modeOfTransport) ? String(job.modeOfTransport).toUpperCase() : '';
+
+    // ---- charge rows: fixed charges in the bill's order; NOC charges and bilty rent come just before the agency commission (301)
     const dynamicRows = job.lines
       .filter((l) => (l.code === NOC_CHARGE_CODE || l.code === BILTY_CHARGE_CODE) && Number(l.amount) > 0)
       .map((l) => ({ code: l.code, label: l.label ?? '', amount: l.amount }));
@@ -123,18 +101,16 @@ export function buildClearancePdf(job: ClearancePdfJob): Promise<Buffer> {
     }
     const psid = !!job.paidThroughPsid;
     const containers = (job.containers ?? []).filter((c) => has(c));
-    const hasContainers = containers.length > 0;
 
-    // customs duty breakdown: printed as its own block only when it was entered
+    // customs duty breakdown, listed inside the 101 row
     const dRaw: Record<string, any> = job.duties && typeof job.duties === 'object' ? job.duties : {};
     const dutyVals = DUTY_KEYS.map((k) => Math.round(Number(dRaw[k.key]) || 0));
     const dutyTotal = dutyVals.reduce((t, n) => t + n, 0);
     const showDuty = dutyTotal > 0;
-    // lines listed inside the 101 row: each duty head that has an amount (they add up to the 101 amount)
     const subs: { label: string; amount: string }[] = showDuty
-      ? DUTY_KEYS.map((k, i) => ({ label: k.label, amount: dutyVals[i] ? split(dutyVals[i]).rs : '' })).filter((x) => x.amount)
+      ? DUTY_KEYS.map((k, i) => ({ label: k.label, amount: dutyVals[i] ? money(dutyVals[i]) : '' })).filter((x) => x.amount)
       : [];
-    const SUB_K = 0.92; // sub-line height as a share of a normal row
+    const SUB_K = 0.92;
     // customs duty (101) always equals the sum of its breakdown; the bill total follows
     let totalAdj = Number(job.total);
     if (showDuty) {
@@ -145,14 +121,11 @@ export function buildClearancePdf(job: ClearancePdfJob): Promise<Buffer> {
       // paid through PSID: the line is printed but the bill total does not include it
       if (!psid) totalAdj += dutyTotal - old;
     }
-    const totalNum = totalAdj;
-    const whole = Math.floor(totalNum + 1e-9);
-    const paisa = Math.round((totalNum - whole) * 100);
-    const words = `AMOUNT IN WORDS: -  PKR ${inWords(whole)}${paisa ? ` and ${inWords(paisa)} Paisa` : ''} Only`;
-    doc.font('Helvetica-Bold').fontSize(8.5);
-    const wh = Math.max(20, doc.heightOfString(words, { width: FULL - 10 }) + 10);
+    const whole = Math.floor(totalAdj + 1e-9);
+    const paisa = Math.round((totalAdj - whole) * 100);
+    const words = `PKR: ${inWords(whole)}${paisa ? ` and ${inWords(paisa)} Paisa` : ''} Only`;
 
-    // letterhead images keep their own proportions
+    // ---- letterhead images keep their own proportions; the blank strips are cut off
     const topImg = asset('tni-letterhead-top.png');
     const bottomImg = asset('tni-letterhead-bottom.png');
     const imgH = (p: string | null) => {
@@ -160,47 +133,22 @@ export function buildClearancePdf(job: ClearancePdfJob): Promise<Buffer> {
       const im = (doc as any).openImage(p);
       return (im.height * W) / im.width;
     };
-    // ---- fit everything on ONE page: squeeze the row heights first, then the letterhead images
-    const BH = 46;
-    const NOTE_H = 15;
-    const termsH = 12 + COMPANY.terms.length * 8.2 + 5;
-    const hasAddress = has(job.customerAddress);
-    const hasTelNtn = has(job.customerPhone) || has(job.customerTax);
-    const hasTracking = has(job.collectorate) || has(job.virNumber);
-    const hdrRows = 2 + (hasTracking ? 1 : 0) + (hasAddress ? 1 : 0) + (hasTelNtn ? 1 : 0) + Math.ceil(optional.length / 2) + (hasContainers ? 1 : 0);
-    // the 101 row grows by its breakdown lines
-    const bodyUnits = rows.length + (showDuty ? subs.length * SUB_K + 0.25 : 0);
     const rawTop = topImg ? imgH(topImg) : 96;
     const rawBot = bottomImg ? imgH(bottomImg) : 44;
-    const topH = topImg ? rawTop - 8 : rawTop; // blank strip under the banner
-    const botH = bottomImg ? rawBot - 28 : rawBot; // blank strip above the address
-    const ROWH = 14; // header rows keep a fixed pitch so the lines stay perfectly aligned
-    // space that does not shrink: gaps, words box, note, banking, terms
-    const fixedExtra = 6 + 6 + (wh + 12) + NOTE_H + (16 + BH + 8) + (termsH + 4 + 6) + hdrRows * ROWH;
-    // only the table rows are squeezed (the letterhead keeps its full width)
-    const k = Math.max(0.5, Math.min(1, (H - topH - botH - fixedExtra) / ((bodyUnits + 2) * 14)));
-    const RH = 14 * k;
-    const SUBH = RH * SUB_K;
-    const imgW = W;
-    const imgX = 0;
+    const topH = topImg ? rawTop - 8 : rawTop;
+    const botH = bottomImg ? rawBot - 28 : rawBot;
     const footerTop = H - botH;
 
     const drawFooter = () => {
       if (bottomImg) {
-          doc.save();
+        doc.save();
         doc.rect(0, footerTop, W, botH).clip();
         doc.image(bottomImg, 0, H - rawBot, { width: W });
         doc.restore();
       } else {
         doc.lineWidth(0.5).strokeColor('#999').moveTo(L, footerTop + 8).lineTo(R, footerTop + 8).stroke();
-        doc
-          .font('Helvetica')
-          .fontSize(8)
-          .fillColor('#444')
-          .text(`${COMPANY.name}  |  ${COMPANY.phones}  |  ${COMPANY.email}`, L, footerTop + 16, {
-            width: FULL,
-            align: 'center',
-          });
+        doc.font('Helvetica').fontSize(8).fillColor('#444')
+          .text(`${COMPANY.name}  |  ${COMPANY.phones}  |  ${COMPANY.email}`, L, footerTop + 16, { width: FULL, align: 'center' });
       }
     };
     drawFooter();
@@ -208,11 +156,7 @@ export function buildClearancePdf(job: ClearancePdfJob): Promise<Buffer> {
 
     // one line of text, vertically centred in a box
     const txt = (
-      x: number,
-      yy: number,
-      w: number,
-      h: number,
-      text = '',
+      x: number, yy: number, w: number, h: number, text = '',
       o: { bold?: boolean; size?: number; align?: 'left' | 'center' | 'right'; color?: string; italic?: boolean } = {},
     ) => {
       if (!text) return;
@@ -220,43 +164,18 @@ export function buildClearancePdf(job: ClearancePdfJob): Promise<Buffer> {
       const face = o.bold ? (o.italic ? 'Helvetica-BoldOblique' : 'Helvetica-Bold') : o.italic ? 'Helvetica-Oblique' : 'Helvetica';
       doc.font(face).fontSize(size).fillColor(o.color ?? '#000');
       doc.text(text, x + 3, yy + (h - size) / 2 + 0.5, {
-        width: w - 6,
-        height: size + 2,
-        ellipsis: true,
-        align: o.align ?? 'left',
-        lineBreak: false,
+        width: w - 6, height: size + 2, ellipsis: true, align: o.align ?? 'left', lineBreak: false,
       });
     };
-
     // a bordered cell with one line of text
     const cell = (
-      x: number,
-      yy: number,
-      w: number,
-      h: number,
-      text = '',
+      x: number, yy: number, w: number, h: number, text = '',
       o: { bold?: boolean; size?: number; align?: 'left' | 'center' | 'right'; fill?: string; color?: string; italic?: boolean } = {},
     ) => {
       doc.lineWidth(0.5).strokeColor('#000');
       if (o.fill) doc.rect(x, yy, w, h).fillAndStroke(o.fill, '#000');
       else doc.rect(x, yy, w, h).stroke();
       txt(x, yy, w, h, text, o);
-    };
-
-    // "Label: value" with a thin line under it. Label and value share one baseline.
-    const field = (label: string, value: string, x: number, yy: number, w: number, bold = true, boldLabel = false) => {
-      doc.font(boldLabel ? 'Helvetica-Bold' : 'Helvetica').fontSize(9).fillColor('#000');
-      const lw = doc.widthOfString(label) + 3;
-      doc.text(label, x, yy, { lineBreak: false });
-      doc.font(bold ? 'Helvetica-Bold' : 'Helvetica');
-      let size = 9;
-      doc.fontSize(size);
-      while (size > 7 && doc.widthOfString(value) > w - lw) {
-        size -= 0.5;
-        doc.fontSize(size);
-      }
-      doc.text(value, x + lw, yy + (9 - size) * 0.75, { width: w - lw, height: 12, ellipsis: true, lineBreak: false });
-      doc.lineWidth(0.4).strokeColor('#555').moveTo(x, yy + 12.5).lineTo(x + w, yy + 12.5).stroke();
     };
 
     // ---- letterhead
@@ -269,161 +188,211 @@ export function buildClearancePdf(job: ClearancePdfJob): Promise<Buffer> {
       doc.font('Helvetica-Bold').fontSize(22).fillColor('#14213d').text(COMPANY.name, L, 34);
       doc.font('Helvetica').fontSize(9).fillColor('#444');
       doc.text(COMPANY.tagline, L, 60);
-      doc.text(`${COMPANY.address}`, L, 72);
+      doc.text(COMPANY.address, L, 72);
       doc.text(`${COMPANY.phones}  |  ${COMPANY.email}`, L, 84);
     }
 
-
+    // ---- header boxes (same sizes as the Kiaan invoice)
     let y = topH + 6;
-    const HALF = (FULL - 20) / 2;
-    const RX = L + HALF + 20;
+    const ROW = 13;
+    const LW = 255;
+    const RX = L + LW + 6;
+    const RW = R - RX;
+    const c1 = 62;
+    const c2 = 108;
+    const c3 = 32;
+    const c4 = RW - c1 - c2 - c3;
+    const boxH = 32 + 15 + 7 * ROW;
 
-    // everything is sized to fit on one page, so a page is never added
-    const ensure = (_h: number) => {};
+    // right: INVOICE
+    cell(RX, y, RW, 32, 'INVOICE', { bold: true, size: 18, align: 'center' });
+    let ry = y + 32;
+    cell(RX, ry, c1 + c2, 15, `DEPARTMENT : CLEARANCE${mode ? ` - ${mode}` : ''}`, { bold: true, size: 9 });
+    cell(RX + c1 + c2, ry, c3, 15, 'NTN', { bold: true });
+    cell(RX + c1 + c2 + c3, ry, c4, 15, job.customerTax ?? '');
+    ry += 15;
+    const grid = (l1: string, v2: string, l3: string, v4: string, boldVal = false) => {
+      cell(RX, ry, c1, ROW, l1, { bold: true });
+      cell(RX + c1, ry, c2, ROW, v2, { bold: boldVal });
+      cell(RX + c1 + c2, ry, c3, ROW, l3, { bold: true });
+      cell(RX + c1 + c2 + c3, ry, c4, ROW, v4);
+      ry += ROW;
+    };
+    grid('Invoice No.', job.invoiceNo, 'Date', invDate, true);
+    grid('Job No.', job.jobNo, 'Date', invDate, true);
+    grid('G.D No.', job.gdNo ?? '', 'Date', beDate);
+    grid('IGM No.', d.igmNo ?? '', 'W No.', d.wNo ?? '');
+    grid('B/E No.', d.beNo ?? '', '', '');
+    grid('Express On', d.expressOn ?? '', '', '');
+    cell(RX, ry, c1, ROW, 'Cust. Ref No.', { bold: true });
+    cell(RX + c1, ry, RW - c1, ROW, d.invoiceRef ?? '');
 
-    // ---- header, same lines as the printed bill (empty fields are not printed)
-    // invoice no. on the left, the title centred on the page, the date on the right
-    field('', job.invoiceNo, L, y, 170);
-    doc
-      .font('Helvetica-Bold')
-      .fontSize(15)
-      .fillColor('#000')
-      .text('Bill Invoice', L, y - 3, { width: FULL, align: 'center', lineBreak: false, underline: true });
-    field('Dated ', invDate, R - 150, y, 150);
-    y += ROWH;
-
-    // tracking: collectorate and VIR number, right under the invoice number
-    if (hasTracking) {
-      if (has(job.collectorate)) field('Collectorate: ', String(job.collectorate), L, y, FULL - 190);
-      if (has(job.virNumber)) field('VIR No: ', String(job.virNumber), R - 175, y, 175);
-      y += ROWH;
+    // left: customer
+    const custH = boxH - 4 * ROW;
+    const c = { name: job.customerName, address: job.customerAddress, phone: job.customerPhone };
+    cell(L, y, LW, custH);
+    cell(L, y, 62, ROW + 2, 'CUSTOMER', { bold: true, size: 9 });
+    doc.font('Helvetica-Bold').fontSize(9).fillColor('#000');
+    doc.text(c.name, L + 4, y + 19, { width: LW - 8, height: 12, ellipsis: true });
+    doc.font('Helvetica').fontSize(8);
+    let cy = y + 32;
+    if (has(c.address)) {
+      doc.text(String(c.address), L + 4, cy, { width: LW - 8, height: custH - 34, ellipsis: true });
+      cy = doc.y;
     }
+    if (has(c.phone) && cy + 10 < y + custH) doc.text(`Tel: ${c.phone}`, L + 4, cy + 1, { width: LW - 8 });
 
-    const commodity = has(d.commodity) ? `  ( ${d.commodity} )` : '';
-    field('Mr./M/s. ', `${job.customerName}${commodity}`, L, y, FULL);
-    y += ROWH;
+    // left: collectorate, VIR, AWB / HAWB, party code
+    let ly = y + custH;
+    const l1 = 62;
+    const l2 = 108;
+    const l3 = 32;
+    const l4 = LW - l1 - l2 - l3;
+    const lrow = (label: string, value: string, label2?: string, value2?: string) => {
+      cell(L, ly, l1, ROW, label, { bold: true });
+      if (label2 === undefined) {
+        cell(L + l1, ly, LW - l1, ROW, value);
+      } else {
+        cell(L + l1, ly, l2, ROW, value);
+        cell(L + l1 + l2, ly, l3, ROW, label2, { bold: true });
+        cell(L + l1 + l2 + l3, ly, l4, ROW, value2 ?? '');
+      }
+      ly += ROW;
+    };
+    lrow('Collectorate', job.collectorate ?? '');
+    lrow('VIR No.', job.virNumber ?? '');
+    lrow('AWB/BL No.', d.blNo ?? '', 'HAWB', d.hawbNo ?? '');
+    lrow('Party Code', d.partyCode ?? '', 'Dem.', d.demBillNo ?? '');
 
-    if (hasAddress) {
-      field('Address: ', String(job.customerAddress), L, y, FULL, false);
-      y += ROWH;
-    }
+    y += boxH + 8;
 
-    // telephone and NTN: separate bold fields, each in its own place on one row
-    if (hasTelNtn) {
-      if (has(job.customerPhone)) field('Tel: ', String(job.customerPhone), L, y, HALF, true, true);
-      if (has(job.customerTax)) field('NTN: ', String(job.customerTax), RX, y, HALF, true, true);
-      y += ROWH;
-    }
+    // ---- MODE / COMMODITY / PCS / WEIGHT / CONTAINER NOS
+    const w = [60, 150, 40, 80];
+    w.push(FULL - w.reduce((a, b) => a + b, 0));
+    const heads = ['MODE', 'COMMODITY', 'PCS', 'WEIGHT (KG)', containers.length > 1 ? 'CONTAINER NOS' : 'CONTAINER NO'];
+    let x = L;
+    heads.forEach((h, i) => {
+      cell(x, y, w[i], 13, h, { bold: true, align: 'center', fill: '#c8c8c8' });
+      x += w[i];
+    });
+    y += 13;
+    const contText = containers.join(', ');
+    doc.font('Helvetica').fontSize(8);
+    const contLines = contText ? Math.min(5, Math.ceil(doc.heightOfString(contText, { width: w[4] - 6 }) / 9.6)) : 0;
+    const dataH = Math.max(28, contLines * 9.6 + 8);
+    const vals = [mode, d.commodity ?? '', d.pcs ?? '', has(d.weightKg) ? money(d.weightKg) : '', contText];
+    x = L;
+    vals.forEach((v, i) => {
+      doc.lineWidth(0.5).strokeColor('#000').rect(x, y, w[i], dataH).stroke();
+      doc.font('Helvetica').fontSize(8).fillColor('#000').text(String(v), x + 3, y + 4, {
+        width: w[i] - 6, height: dataH - 6, ellipsis: true, align: i === 1 || i === 4 ? 'left' : 'center',
+      });
+      x += w[i];
+    });
+    y += dataH + 14;
 
-    for (let i = 0; i < optional.length; i += 2) {
-      field(optional[i][0], optional[i][1], L, y, HALF);
-      if (optional[i + 1]) field(optional[i + 1][0], optional[i + 1][1], RX, y, HALF);
-      y += ROWH;
-    }
-    if (hasContainers) {
-      field(containers.length > 1 ? 'Container Nos: ' : 'Container No: ', containers.join(', '), L, y, FULL);
-      y += ROWH;
-    }
-    y += 6;
+    // ---- sizes below the table, then squeeze the charge rows so everything stays on one page
+    const termsH = 14 + COMPANY.terms.length * 9 + 6;
+    doc.font('Helvetica-Bold').fontSize(8);
+    const AMTW = 100;
+    const TOTW = 56;
+    const wordsW = FULL - AMTW - TOTW;
+    const th = Math.max(22, doc.heightOfString(words, { width: wordsW - 8 }) + 8);
+    const belowTable = th + 16 + 22 + 18 + 4 * 11 + 8 + termsH + 4 + 8;
+    const bodyUnits = rows.length + (showDuty ? subs.length * SUB_K + 0.25 : 0);
+    const room = footerTop - y - 20 - belowTable;
+    let pad = Math.max(0, 5 - rows.length);
+    if (room < (bodyUnits + pad) * 14) pad = 0;
+    const k = Math.max(0.6, Math.min(1, room / (Math.max(bodyUnits + pad, 1) * 14)));
+    const RH = 14 * k;
+    const SUBH = RH * SUB_K;
 
-    // ---- table: code | particulars | Rs. | Ps. (only the charges that were entered)
-    const INFO = 0;
-    const SNW = 36;
-    const RSW = 92;
-    const PSW = 34;
-    const PW = FULL - INFO - SNW - RSW - PSW;
-    const xS = L + INFO;
-    const xP = xS + SNW;
-    const xR = xP + PW;
-    const xPs = xR + RSW;
+    const ensure = (h: number) => {
+      if (y + h > footerTop - 8) {
+        doc.addPage();
+        y = 40;
+      }
+    };
 
-
+    // ---- particulars: CODE | PARTICULARS | AMOUNT (PKR)
+    const xC = L;
+    const CW = 40;
+    const xP = L + CW;
+    const xA = R - AMTW;
+    const PW = xA - xP;
     ensure(80);
-    cell(xS, y, SNW, RH, '', { fill: '#c8c8c8' });
-    cell(xP, y, PW, RH, '', { fill: '#c8c8c8' });
-    cell(xR, y, RSW, RH, 'Rs.', { bold: true, align: 'center', fill: '#c8c8c8' });
-    cell(xPs, y, PSW, RH, 'Ps.', { bold: true, align: 'center', fill: '#c8c8c8' });
-    y += RH;
+    cell(xC, y, CW, 15, 'CODE', { bold: true, align: 'center', fill: '#c8c8c8' });
+    cell(xP, y, PW, 15, 'PARTICULARS', { bold: true, align: 'center', fill: '#c8c8c8' });
+    cell(xA, y, AMTW, 15, 'AMOUNT (PKR)', { bold: true, align: 'center', fill: '#c8c8c8' });
+    y += 20;
 
+    const prow = (code: string, part: string, amt: string, memo = false) => {
+      ensure(RH);
+      cell(xC, y, CW, RH, code, { align: 'center', size: 7.5 });
+      cell(xP, y, PW, RH, part);
+      cell(xA, y, AMTW, RH, amt, { align: 'right', color: memo ? '#666' : undefined, italic: memo });
+      y += RH;
+    };
     for (const r of rows) {
-      const a = split(r.amount);
+      const memo = psid && r.code === '101'; // PSID: shown, not added
+      const label = memo ? `${r.label}  [PAID THROUGH PSID - NOT IN TOTAL]` : r.label;
       if (r.code === '101' && showDuty && subs.length) {
         // big row: the customs duty line followed by where it goes
         const bigH = RH + subs.length * SUBH + 3;
-        cell(xS, y, SNW, bigH);
+        ensure(bigH);
+        cell(xC, y, CW, bigH);
         cell(xP, y, PW, bigH);
-        cell(xR, y, RSW, bigH);
-        cell(xPs, y, PSW, bigH);
-        txt(xS, y, SNW, RH, r.code, { align: 'center', size: 7.5 });
-        const memo = psid && r.code === '101'; // PSID: shown, not added
-        txt(xP, y, PW, RH, memo ? `${r.label}  [PAID THROUGH PSID - NOT IN TOTAL]` : r.label, { size: 8, bold: true });
-        txt(xR, y, RSW, RH, a.rs, { bold: true, align: 'right', color: memo ? '#666' : undefined, italic: memo });
-        txt(xPs, y, PSW, RH, a.ps, { bold: true, align: 'center', color: memo ? '#666' : undefined, italic: memo });
-        doc.lineWidth(0.3).strokeColor('#999').moveTo(xP + 3, y + RH).lineTo(xR + RSW - 3, y + RH).stroke();
+        cell(xA, y, AMTW, bigH);
+        txt(xC, y, CW, RH, r.code, { align: 'center', size: 7.5 });
+        txt(xP, y, PW, RH, label, { bold: true });
+        txt(xA, y, AMTW, RH, money(r.amount), { align: 'right', color: memo ? '#666' : undefined, italic: memo });
+        doc.lineWidth(0.3).strokeColor('#999').moveTo(xP + 3, y + RH).lineTo(xA + AMTW - 3, y + RH).stroke();
         subs.forEach((sl, n) => {
           const sy = y + RH + 1 + n * SUBH;
           txt(xP + 14, sy, PW - 14, SUBH, sl.label, { size: 7.5 });
-          if (sl.amount) txt(xR, sy, RSW, SUBH, sl.amount, { size: 7.5, align: 'right' });
+          txt(xA, sy, AMTW, SUBH, sl.amount, { size: 7.5, align: 'right' });
         });
         y += bigH;
         continue;
       }
-      const memo = psid && r.code === '101'; // PSID: shown, not added
-      cell(xS, y, SNW, RH, r.code, { align: 'center', size: 7.5 });
-      cell(xP, y, PW, RH, memo ? `${r.label}  [PAID THROUGH PSID - NOT IN TOTAL]` : r.label, { size: 8 });
-      cell(xR, y, RSW, RH, a.rs, { bold: true, align: 'right', color: memo ? '#666' : undefined, italic: memo });
-      cell(xPs, y, PSW, RH, a.ps, { bold: true, align: 'center', color: memo ? '#666' : undefined, italic: memo });
-      y += RH;
+      prow(r.code, label, money(r.amount), memo);
     }
+    for (let i = 0; i < pad; i++) prow('', '', '');
 
-    // ---- total
-    const tot = split(totalAdj);
-    ensure(RH);
-    cell(xS, y, SNW, RH, '344', { align: 'center', size: 7.5 });
-    cell(xP, y, PW, RH, 'Total', { bold: true, size: 9 });
-    cell(xR, y, RSW, RH, tot.rs, { bold: true, size: 9, align: 'right' });
-    cell(xPs, y, PSW, RH, tot.ps, { bold: true, align: 'center' });
-    y += RH;
-
-    // ---- amount in words
-    ensure(wh);
-    doc.lineWidth(0.5).strokeColor('#000').rect(L, y, FULL, wh).stroke();
-    doc.font('Helvetica-Bold').fontSize(8.5).fillColor('#000').text(words, L + 5, y + 5, { width: FULL - 10 });
-    y += wh + 12;
+    // ---- total row with amount in words
+    ensure(th + 16 + 22 + 80);
+    doc.lineWidth(0.5).strokeColor('#000').rect(L, y, wordsW, th).stroke();
+    doc.font('Helvetica-Bold').fontSize(8).fillColor('#000').text(words, L + 4, y + 4, { width: wordsW - 8 });
+    cell(L + wordsW, y, TOTW, th, 'TOTAL', { bold: true, align: 'center' });
+    cell(xA, y, AMTW, th, money(totalAdj), { bold: true, align: 'right' });
+    y += th + 16;
 
     // ---- note instead of a stamp
-    doc
-      .font('Helvetica-Bold')
-      .fontSize(8)
-      .fillColor('#000')
-      .text('This is a computer generated invoice. No signature or stamp is required.', L, y, {
-        width: FULL,
-        align: 'center',
-      });
-    y += NOTE_H;
+    doc.font('Helvetica-Bold').fontSize(8).fillColor('#000')
+      .text('This is a computer generated invoice. No signature or stamp is required.', L, y, { width: FULL, align: 'center' });
+    y += 22;
 
-    // ---- banking details (both accounts side by side)
+    // ---- banking details: plain text like the Kiaan invoice, both accounts side by side
+    ensure(80);
     doc.font('Helvetica-Bold').fontSize(11).fillColor('#355E9B').text('Banking detail:', L, y);
-    y += 16;
-    const BW = (FULL - 10) / COMPANY.banks.length;
+    y += 18;
+    const BW = FULL / COMPANY.banks.length;
     COMPANY.banks.forEach((b, i) => {
-      const bx = L + i * (BW + 10);
-      doc.lineWidth(0.5).strokeColor('#999').rect(bx, y, BW, BH).stroke();
-      doc.font('Helvetica-Bold').fontSize(9).fillColor('#000').text(b.bank, bx + 6, y + 4, { width: BW - 12 });
-      doc.font('Helvetica').fontSize(8.5);
-      doc.text(`Account Title: ${b.title}`, bx + 6, y + 15, { width: BW - 12 });
-      doc.text(`Account Number: ${b.account}`, bx + 6, y + 25, { width: BW - 12 });
-      doc.text(`IBAN: ${b.iban}`, bx + 6, y + 35, { width: BW - 12 });
+      doc.font('Helvetica').fontSize(8.5).fillColor('#000');
+      [`Account Title: ${b.title}`, `Account Number: ${b.account}`, `IBAN: ${b.iban}`, b.bank].forEach((line, n) =>
+        doc.text(line, L + i * BW, y + n * 11, { width: BW - 10, lineBreak: false }),
+      );
     });
-    y += BH + 8;
+    y += 4 * 11 + 8;
 
     // ---- terms & conditions (bottom of the page, above the footer)
+    if (y > footerTop - termsH - 8) doc.addPage();
     const ty = footerTop - termsH - 4;
     doc.lineWidth(0.5).strokeColor('#000').rect(L, ty, FULL, termsH).stroke();
     doc.font('Helvetica-Bold').fontSize(8).fillColor('#000').text('Terms & Conditions:', L + 4, ty + 3);
     doc.font('Helvetica').fontSize(6.5);
     COMPANY.terms.forEach((line, i) =>
-      doc.text(line, L + 4, ty + 12 + i * 8.2, { width: FULL - 8, height: 8, ellipsis: true }),
+      doc.text(line, L + 4, ty + 14 + i * 9, { width: FULL - 8, height: 8, ellipsis: true }),
     );
 
     doc.end();
