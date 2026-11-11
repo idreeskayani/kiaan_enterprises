@@ -68,6 +68,21 @@ export class InvoicesController {
     return this.invoices.listCosts(vendor, payment, from, to);
   }
 
+  // Vendor ledger PDF (declared before ':id' routes). Same filters as the list above, plus ?from= & ?to=
+  @Get('costs/report')
+  async debitsReport(
+    @Query('vendor') vendor?: string,
+    @Query('payment') payment?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    const { buffer, filename } = await this.invoices.debitsPdf(vendor, payment, from, to);
+    return new StreamableFile(buffer, {
+      type: 'application/pdf',
+      disposition: `inline; filename="${filename}"`,
+    });
+  }
+
   @Patch('costs/:costId/payment')
   setCostPayment(
     @Param('costId', ParseUUIDPipe) costId: string,

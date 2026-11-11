@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import { api } from '../api';
+import { api, openPdfPath } from '../api';
 import { Badge, fmt } from '../components';
 import { DateRange, useDateRange } from '../DateRange';
+import { ShareButton } from '../Share';
 import { PayFields, PaymentNote, emptyPay, payBody, payError as checkPay, type PayInfo } from '../PaymentForm';
 
 // Every debit (cost) of every invoice in one list: filter by company and payment status.
@@ -121,6 +122,27 @@ export default function Debits() {
     [rows],
   );
 
+  // vendor ledger: the same filters as the list (company, status, dates); no company typed = all vendors
+  const reportPath = `/invoices/costs/report?${new URLSearchParams({
+    ...(vendor.trim() && { vendor: vendor.trim() }),
+    ...(payment && { payment }),
+    ...(range.from && { from: range.from }),
+    ...(range.to && { to: range.to }),
+  }).toString()}`;
+  const canReport = rows.length > 0 && !range.bad;
+  const reportWho = vendor.trim() || 'All vendors';
+
+  async function viewReport() {
+    setError('');
+    const win = window.open('', '_blank'); // opened on click so the browser does not block it
+    try {
+      await openPdfPath(reportPath, win);
+    } catch (e) {
+      win?.close();
+      setError((e as Error).message);
+    }
+  }
+
   return (
     <>
       <div className="row" style={{ marginBottom: 14 }}>
@@ -160,6 +182,38 @@ export default function Debits() {
           <span className="muted">Still to pay{vendor.trim() || payment || range.active ? ' (filtered)' : ''}</span>
           <b className={totals.owed > 0 ? 'profit-neg' : 'profit-pos'}>{fmt(totals.owed)}</b>
         </div>
+      </div>
+
+      <div className="card">
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+          <button className="ghost" disabled={!canReport} onClick={viewReport}>
+            View report
+          </button>
+          {canReport ? (
+            <ShareButton
+              path={reportPath}
+              invoiceNo={`VL-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}`}
+              company="Kiaan Freight Services"
+              customer={reportWho}
+              total={totals.owed}
+              label="Share report"
+              className=""
+              docLabel="vendor ledger"
+            />
+          ) : (
+            <button disabled>Share report</button>
+          )}
+          <span className="muted">
+            Vendor ledger for {reportWho}
+            {range.active ? ` · ${range.from || '…'} to ${range.to || '…'}` : ''}
+            {payment ? ` · ${payment.toLowerCase()} only` : ''}
+          </span>
+        </div>
+        {!vendor.trim() && (
+          <p className="muted" style={{ margin: '10px 0 0' }}>
+            Leave the company box empty for a report of all vendors, or pick one company for its own ledger.
+          </p>
+        )}
       </div>
 
       <div className="card">

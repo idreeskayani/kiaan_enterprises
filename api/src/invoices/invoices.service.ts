@@ -20,6 +20,8 @@ import type { AddCostDto, PaymentInfoDto } from './dto.js';
 import { ShipmentsService } from '../shipments/shipments.service.js';
 import { buildInvoicePdf } from './invoice-pdf.js';
 import { buildDuesPdf } from './dues-pdf.js';
+import { buildDebitsPdf } from './debits-pdf.js';
+import type { LedgerItem } from './debits-pdf.js';
 import type { DuesData, DuesItem, DuesScope } from './dues-pdf.js';
 import type { PdfInvoice } from './invoice-pdf.js';
 
@@ -471,6 +473,61 @@ export class InvoicesService {
       invoiceNo: invoice.invoiceNo,
       customerName: invoice.customer?.name ?? invoice.shipment?.customer.name ?? '',
     }));
+  }
+
+  // Vendor ledger PDF: the debits the Debits page shows (same vendor / status / date filters), grouped by vendor.
+  async debitsPdf(vendor?: string, payment?: string, from?: string, to?: string) {
+    const where: Prisma.InvoiceCostWhereInput = {};
+    const range = this.dateRange(from, to);
+    if (range) where.incurredAt = range;
+    const name = vendor?.trim();
+    if (name) where.vendor = { contains: name, mode: 'insensitive' };
+    const status = payment && payment in CostPayment ? (payment as CostPayment) : undefined;
+    if (status) where.payment = status;
+    const rows = await this.prisma.invoiceCost.findMany({
+      where,
+      include: {
+        invoice: {
+          select: { invoiceNo: true, details: true, shipment: { select: { blAwbNo: true, hawbNo: true } } },
+        },
+      },
+      orderBy: { incurredAt: 'asc' },
+    });
+    if (rows.length === 0) throw new BadRequestException('There are no debits for this filter');
+
+    const round = (n: number) => Math.round(n * 100) / 100;
+    const groups = new Map<string, LedgerItem[]>();
+    for (const r of rows) {
+      const amount = Number(r.amount);
+      const remaining =
+        r.payment === CostPayment.PAID ? 0 : r.payment === CostPayment.PARTIAL ? Number(r.dueAmount) : amount;
+      const d = (r.invoice.details ?? {}) as { blAwbNo?: string; hawbNo?: string };
+      const mawb = r.invoice.shipment?.blAwbNo ?? d.blAwbNo ?? '';
+      const hawb = r.invoice.shipment?.hawbNo ?? d.hawbNo ?? '';
+      const key = r.vendor?.trim() || 'No vendor';
+      const list = groups.get(key) ?? [];
+      list.push({
+        date: r.incurredAt,
+        label: r.label,
+        invoiceNo: r.invoice.invoiceNo,
+        ref: [mawb, hawb].filter(Boolean).join(' / '),
+        amount: round(amount),
+        paid: round(amount - remaining),
+        remaining: round(remaining),
+      });
+      groups.set(key, list);
+    }
+    const vendors = [...groups.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([n, items]) => ({ name: n, items }));
+    const buffer = await buildDebitsPdf({
+      vendors,
+      period: from || to ? { from: from || undefined, to: to || undefined } : undefined,
+      payment: status,
+      date: new Date(),
+    });
+    const who = vendors.length === 1 ? vendors[0].name : 'All vendors';
+    return { buffer, filename: `Vendor ledger - ${this.safeName(who)}.pdf` };
   }
 
   // Same rules as invoice payments: PARTIAL needs the remaining amount, which must be below the cost.
