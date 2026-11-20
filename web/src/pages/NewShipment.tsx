@@ -513,6 +513,7 @@ function QuotationForm({ editId, editType }: { editId?: string; editType?: 'quot
   const unit = mode === 'SEA' ? 'CBM' : 'kg';
   const MORE: [string, string, 'text' | 'date'][] = [
     ['custRef', 'Customer ref no.', 'text'],
+    ['jobDate', 'Job date', 'date'],
     ['mawbDate', `${names.master} date`, 'date'],
     ['hawbDate', `${names.house} date`, 'date'],
     ['etd', 'ETD', 'date'],

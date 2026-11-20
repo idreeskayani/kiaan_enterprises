@@ -251,8 +251,6 @@ export class InvoicesService {
           const d = (r.details ?? {}) as { blAwbNo?: string; hawbNo?: string };
           return {
             ...r,
-            // a draft always shows today's date; it is fixed once the invoice is sent
-            issuedAt: r.status === InvoiceStatus.DRAFT ? new Date() : r.issuedAt,
             mawb: r.shipment?.blAwbNo ?? d.blAwbNo ?? '',
             hawb: r.shipment?.hawbNo ?? d.hawbNo ?? '',
             lastPayment: payments[0] ?? null,
@@ -281,8 +279,6 @@ export class InvoicesService {
       },
     });
     if (!invoice) throw new NotFoundException('Invoice not found');
-    // a draft always shows today's date; it is fixed once the invoice is sent
-    if (invoice.status === InvoiceStatus.DRAFT) invoice.issuedAt = new Date();
     return invoice;
   }
 
@@ -319,7 +315,7 @@ export class InvoicesService {
   async issue(id: string) {
     const invoice = await this.findOne(id);
     if (invoice.status !== InvoiceStatus.DRAFT) return invoice;
-    // the invoice date is set now and stays fixed from here on
+    // the date the client sees on the PDF is set now and stays fixed from here on
     return this.prisma.invoice.update({
       where: { id },
       data: { status: InvoiceStatus.ISSUED, issuedAt: new Date() },
@@ -419,8 +415,6 @@ export class InvoicesService {
           total: q.total,
           dueAmount: due,
           status,
-          // draft: date follows the edit time; sent invoices keep their date
-          ...(invoice.status === InvoiceStatus.DRAFT && { issuedAt: new Date() }),
           lines: {
             create: q.lines.map((l) => ({
               label: l.label,
@@ -667,7 +661,7 @@ export class InvoicesService {
       const d = (r.details ?? {}) as { blAwbNo?: string; hawbNo?: string };
       return {
         invoiceNo: r.invoiceNo,
-        issuedAt: isDraft ? new Date() : r.issuedAt,
+        issuedAt: r.issuedAt,
         mawb: r.shipment?.blAwbNo ?? d.blAwbNo ?? '',
         hawb: r.shipment?.hawbNo ?? d.hawbNo ?? '',
         total: round(total),
@@ -789,7 +783,13 @@ export class InvoicesService {
   }
 
   async pdf(id: string) {
-    const invoice = await this.findOne(id);
+    const found = await this.findOne(id);
+    // Draft: only the date next to the invoice number is today's date. Sent invoices keep their saved date.
+    // Every other date on the PDF is typed in manually.
+    const invoice = {
+      ...found,
+      issuedAt: found.status === InvoiceStatus.DRAFT ? new Date() : found.issuedAt,
+    };
     if (invoice.shipment) {
       const buffer = await buildInvoicePdf({ ...invoice, shipment: invoice.shipment });
       return { buffer, filename: `${invoice.invoiceNo}.pdf` };

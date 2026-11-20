@@ -8,7 +8,7 @@ import { dayRange } from '../common/date-range.js';
 import { CreateShipmentDto, QuoteDto } from './dto.js';
 
 const DETAIL_KEYS = [
-  'direction', 'airline', 'shipper', 'commodity', 'custRef', 'etd',
+  'direction', 'airline', 'shipper', 'commodity', 'custRef', 'etd', 'jobDate',
   'mawbDate', 'hawbDate', 'doNo', 'doDate', 'igmNo', 'igmDate', 'beNo', 'beDate',
 ];
 

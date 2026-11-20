@@ -267,7 +267,7 @@ export function buildInvoicePdf(inv: PdfInvoice): Promise<Buffer> {
       grid('Valid Until', fmtDate(inv.validUntil), '', '', true);
     } else {
       grid('Invoice No.', inv.status === 'PREVIEW' ? 'PREVIEW' : inv.invoiceNo, 'Date', invDate, true);
-      grid('Job No.', s.refNo, 'Date', invDate, true);
+      grid('Job No.', s.refNo, 'Date', fmtDate(d.jobDate), true); // manual, like the other dates
     }
     grid(t.dO, d.doNo ?? '', 'Date', fmtDate(d.doDate));
     grid('IGM No.', d.igmNo ?? '', 'Date', fmtDate(d.igmDate));
