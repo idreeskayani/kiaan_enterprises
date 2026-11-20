@@ -251,6 +251,8 @@ export class InvoicesService {
           const d = (r.details ?? {}) as { blAwbNo?: string; hawbNo?: string };
           return {
             ...r,
+            // a draft always shows today's date; it is fixed once the invoice is sent
+            issuedAt: r.status === InvoiceStatus.DRAFT ? new Date() : r.issuedAt,
             mawb: r.shipment?.blAwbNo ?? d.blAwbNo ?? '',
             hawb: r.shipment?.hawbNo ?? d.hawbNo ?? '',
             lastPayment: payments[0] ?? null,
@@ -279,6 +281,8 @@ export class InvoicesService {
       },
     });
     if (!invoice) throw new NotFoundException('Invoice not found');
+    // a draft always shows today's date; it is fixed once the invoice is sent
+    if (invoice.status === InvoiceStatus.DRAFT) invoice.issuedAt = new Date();
     return invoice;
   }
 
@@ -315,7 +319,11 @@ export class InvoicesService {
   async issue(id: string) {
     const invoice = await this.findOne(id);
     if (invoice.status !== InvoiceStatus.DRAFT) return invoice;
-    return this.prisma.invoice.update({ where: { id }, data: { status: InvoiceStatus.ISSUED } });
+    // the invoice date is set now and stays fixed from here on
+    return this.prisma.invoice.update({
+      where: { id },
+      data: { status: InvoiceStatus.ISSUED, issuedAt: new Date() },
+    });
   }
 
   // Payment status only. This never touches the shipment's status.
@@ -411,6 +419,8 @@ export class InvoicesService {
           total: q.total,
           dueAmount: due,
           status,
+          // draft: date follows the edit time; sent invoices keep their date
+          ...(invoice.status === InvoiceStatus.DRAFT && { issuedAt: new Date() }),
           lines: {
             create: q.lines.map((l) => ({
               label: l.label,
@@ -657,7 +667,7 @@ export class InvoicesService {
       const d = (r.details ?? {}) as { blAwbNo?: string; hawbNo?: string };
       return {
         invoiceNo: r.invoiceNo,
-        issuedAt: r.issuedAt,
+        issuedAt: isDraft ? new Date() : r.issuedAt,
         mawb: r.shipment?.blAwbNo ?? d.blAwbNo ?? '',
         hawb: r.shipment?.hawbNo ?? d.hawbNo ?? '',
         total: round(total),
