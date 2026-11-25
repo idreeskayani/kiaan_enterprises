@@ -40,6 +40,8 @@ export default function CostsModal({
   const [rate, setRate] = useState('');
   const [date, setDate] = useState(today);
   const [note, setNote] = useState('');
+  // id of the unpaid cost being corrected ('' = adding a new one)
+  const [editingId, setEditingId] = useState('');
 
   useEffect(() => {
     api(`/invoices/${invoice.id}/costs`).then(setData).catch((e) => setError(e.message));
@@ -66,6 +68,29 @@ export default function CostsModal({
   const foreign = currency !== 'PKR';
   const pkrPreview = foreign && Number(amount) > 0 && Number(rate) > 0 ? Number(amount) * Number(rate) : null;
 
+  function resetForm() {
+    setEditingId('');
+    setLabel('');
+    setVendorId('');
+    setAmount('');
+    setCurrency('PKR');
+    setRate('');
+    setDate(today);
+    setNote('');
+  }
+
+  function startEdit(c: any) {
+    setError('');
+    setEditingId(c.id);
+    setLabel(c.label);
+    setVendorId(vendors.find((v) => v.name === c.vendor)?.id ?? '');
+    setCurrency(c.currency || 'PKR');
+    setAmount(String(c.currency ? Number(c.foreignAmount) : Number(c.amount)));
+    setRate(c.currency ? String(Number(c.exRate)) : '');
+    setDate(new Date(c.incurredAt).toISOString().slice(0, 10));
+    setNote(c.note ?? '');
+  }
+
   async function add() {
     setError('');
     if (!label.trim()) return setError('Enter what the cost was for');
@@ -74,8 +99,8 @@ export default function CostsModal({
     if (foreign && !(Number(rate) > 0)) return setError(`Enter the exchange rate (PKR per 1 ${currency})`);
     setBusy(true);
     try {
-      const d = await api(`/invoices/${invoice.id}/costs`, {
-        method: 'POST',
+      const d = await api(`/invoices/${invoice.id}/costs${editingId ? `/${editingId}` : ''}`, {
+        method: editingId ? 'PATCH' : 'POST',
         body: {
           label: label.trim(),
           vendor: vendors.find((v) => v.id === vendorId)?.name || undefined,
@@ -87,10 +112,13 @@ export default function CostsModal({
         },
       });
       setData(d);
-      setLabel('');
-      setVendorId('');
-      setAmount('');
-      setNote('');
+      if (editingId) resetForm();
+      else {
+        setLabel('');
+        setVendorId('');
+        setAmount('');
+        setNote('');
+      }
       onChanged();
     } catch (e) {
       setError((e as Error).message);
@@ -104,6 +132,7 @@ export default function CostsModal({
     setError('');
     try {
       setData(await api(`/invoices/${invoice.id}/costs/${c.id}`, { method: 'DELETE' }));
+      if (editingId === c.id) resetForm();
       onChanged();
     } catch (e) {
       setError((e as Error).message);
@@ -154,7 +183,10 @@ export default function CostsModal({
                   <Badge status={c.payment} />
                   {c.payment === 'PARTIAL' && <span className="due">Remaining: {fmt(c.dueAmount)}</span>}
                 </td>
-                <td>
+                <td style={{ whiteSpace: 'nowrap' }}>
+                  {c.payment === 'UNPAID' && (
+                    <button type="button" className="small ghost" style={{ marginRight: 6 }} onClick={() => startEdit(c)} title="Edit cost">✎</button>
+                  )}
                   <button type="button" className="small" style={{ background: '#fee2e2', color: '#991b1b' }} onClick={() => remove(c)} title="Delete cost">✕</button>
                 </td>
               </tr>
@@ -165,7 +197,7 @@ export default function CostsModal({
           </tbody>
         </table>
 
-        <h3 style={{ marginTop: 18, fontSize: 15 }}>Add a cost</h3>
+        <h3 style={{ marginTop: 18, fontSize: 15 }}>{editingId ? 'Edit cost' : 'Add a cost'}</h3>
         <div className="row" style={{ marginBottom: 10 }}>
           <div style={{ flex: 2 }}>
             <label>Cost for</label>
@@ -218,8 +250,11 @@ export default function CostsModal({
         {pkrPreview !== null && <p className="muted" style={{ margin: '4px 0' }}>= PKR {fmt(pkrPreview)}</p>}
 
         <div className="actions">
+          {editingId && <button type="button" className="ghost" disabled={busy} onClick={resetForm}>Cancel edit</button>}
           <button type="button" className="ghost" onClick={onClose}>Close</button>
-          <button type="button" disabled={busy} onClick={add}>{busy ? 'Adding...' : 'Add cost'}</button>
+          <button type="button" disabled={busy} onClick={add}>
+            {busy ? 'Saving...' : editingId ? 'Update cost' : 'Add cost'}
+          </button>
         </div>
       </div>
     </div>

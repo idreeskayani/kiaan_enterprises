@@ -44,6 +44,9 @@ export class AddCostDto {
   @IsOptional() @IsDateString() incurredAt?: string;
 }
 
+// Fix a cost that has not been paid yet: same fields as adding one (replaces them)
+export class UpdateCostDto extends AddCostDto {}
+
 // Payment of a debit (what we owe a vendor). PARTIAL: dueAmount is what is still owed (PKR)
 export class UpdateCostPaymentDto extends PaymentInfoDto {
   @IsIn(['PAID', 'UNPAID', 'PARTIAL']) status: 'PAID' | 'UNPAID' | 'PARTIAL';

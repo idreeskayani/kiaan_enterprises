@@ -41,6 +41,18 @@ export class CatalogController {
     }
   }
 
+  // Same customer typed with different case / extra spaces counts as the same name.
+  private async assertCustomerNameFree(name: string, exceptId?: string) {
+    const clash = await this.prisma.customer.findFirst({
+      where: {
+        name: { equals: name.replace(/\s+/g, ' ').trim(), mode: 'insensitive' },
+        ...(exceptId ? { id: { not: exceptId } } : {}),
+      },
+      select: { id: true },
+    });
+    if (clash) throw new ConflictException('A customer with this name already exists');
+  }
+
   @Get('customers')
   customers() {
     return this.prisma.customer.findMany({ orderBy: { name: 'asc' } });
@@ -48,16 +60,27 @@ export class CatalogController {
 
   @Post('customers')
   @Roles(Role.OPERATOR, Role.ACCOUNTANT)
-  createCustomer(@Body() dto: CreateCustomerDto) {
-    return this.prisma.customer.create({ data: dto });
+  async createCustomer(@Body() dto: CreateCustomerDto) {
+    const name = dto.name?.replace(/\s+/g, ' ').trim();
+    if (!name) throw new BadRequestException('Enter the customer name');
+    await this.assertCustomerNameFree(name);
+    return this.prisma.customer.create({
+      data: {
+        name,
+        phone: dto.phone?.trim() || null,
+        address: dto.address?.trim() || null,
+        taxNumber: dto.taxNumber?.trim() || null,
+      },
+    });
   }
 
   // Empty text clears a detail (phone / address / tax number). The name cannot be emptied.
   @Patch('customers/:id')
   @Roles(Role.OPERATOR, Role.ACCOUNTANT)
-  updateCustomer(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateCustomerDto) {
-    const name = dto.name?.trim();
+  async updateCustomer(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateCustomerDto) {
+    const name = dto.name?.replace(/\s+/g, ' ').trim();
     if (dto.name !== undefined && !name) throw new BadRequestException('Enter the customer name');
+    if (name) await this.assertCustomerNameFree(name, id);
     return this.prisma.customer.update({
       where: { id },
       data: {

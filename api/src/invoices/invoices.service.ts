@@ -16,7 +16,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service.js';
 import { dayRange } from '../common/date-range.js';
 import type { CreateShipmentDto } from '../shipments/dto.js';
-import type { AddCostDto, PaymentInfoDto } from './dto.js';
+import type { AddCostDto, PaymentInfoDto, UpdateCostDto } from './dto.js';
 import { ShipmentsService } from '../shipments/shipments.service.js';
 import { buildInvoicePdf } from './invoice-pdf.js';
 import { buildDuesPdf } from './dues-pdf.js';
@@ -600,6 +600,36 @@ export class InvoicesService {
         exRate: foreign ? dto.exRate : null,
         note: dto.note?.trim() || null,
         incurredAt: dto.incurredAt ? new Date(dto.incurredAt) : undefined,
+      },
+    });
+    return this.costs(id);
+  }
+
+  // Fix a wrong figure / label / vendor on a cost. Paid or part-paid costs are locked,
+  // because money has already been recorded against them.
+  async updateCost(id: string, costId: string, dto: UpdateCostDto) {
+    const found = await this.prisma.invoiceCost.findFirst({ where: { id: costId, invoiceId: id } });
+    if (!found) throw new NotFoundException('Cost not found');
+    if (found.payment !== CostPayment.UNPAID) {
+      throw new BadRequestException('Only an unpaid cost can be edited. Mark it unpaid first.');
+    }
+    const currency = dto.currency?.trim().toUpperCase() || 'PKR';
+    const foreign = currency !== 'PKR';
+    if (foreign && !dto.exRate) {
+      throw new BadRequestException(`Enter the exchange rate (PKR per 1 ${currency})`);
+    }
+    const pkr = foreign ? Math.round(dto.amount * dto.exRate! * 100) / 100 : dto.amount;
+    await this.prisma.invoiceCost.update({
+      where: { id: costId },
+      data: {
+        label: dto.label.trim(),
+        vendor: dto.vendor?.trim() || null,
+        amount: pkr,
+        currency: foreign ? currency : null,
+        foreignAmount: foreign ? dto.amount : null,
+        exRate: foreign ? dto.exRate : null,
+        note: dto.note?.trim() || null,
+        ...(dto.incurredAt ? { incurredAt: new Date(dto.incurredAt) } : {}),
       },
     });
     return this.costs(id);

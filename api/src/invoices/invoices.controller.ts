@@ -17,7 +17,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { Roles } from '../auth/roles.decorator.js';
 import { RolesGuard } from '../auth/roles.guard.js';
 import { CreateShipmentDto } from '../shipments/dto.js';
-import { AddCostDto, SaveDuesReportDto, UpdateCostPaymentDto, UpdateInvoiceStatusDto } from './dto.js';
+import { AddCostDto, SaveDuesReportDto, UpdateCostDto, UpdateCostPaymentDto, UpdateInvoiceStatusDto } from './dto.js';
 import { InvoicesService } from './invoices.service.js';
 import { DUES_SCOPES } from './dues-pdf.js';
 import type { DuesScope } from './dues-pdf.js';
@@ -189,6 +189,16 @@ export class InvoicesController {
   @Post(':id/costs')
   addCost(@Param('id', ParseUUIDPipe) id: string, @Body() dto: AddCostDto) {
     return this.invoices.addCost(id, dto);
+  }
+
+  // Only a cost that is still UNPAID can be edited.
+  @Patch(':id/costs/:costId')
+  updateCost(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('costId', ParseUUIDPipe) costId: string,
+    @Body() dto: UpdateCostDto,
+  ) {
+    return this.invoices.updateCost(id, costId, dto);
   }
 
   @Delete(':id/costs/:costId')

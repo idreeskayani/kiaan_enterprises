@@ -17,6 +17,8 @@ const toForm = (p?: Party | null): Form => ({
   address: p?.address ?? '',
   taxNumber: p?.taxNumber ?? '',
 });
+const norm = (n: string) => n.replace(/\s+/g, ' ').trim().toLowerCase();
+const sameName = (a: string, b: string) => norm(a) === norm(b);
 const byName = (a: Party, b: Party) => a.name.localeCompare(b.name);
 
 // Pick a saved customer / vendor, add a new one, or fix the details of the one picked.
@@ -85,6 +87,9 @@ export default function PartyPicker({
 
   async function saveNew() {
     if (!form.name.trim()) return setMsg(`Enter the ${noun} name`);
+    if (list.some((p) => sameName(p.name, form.name))) {
+      return fail(new Error(`A ${noun} with this name already exists`));
+    }
     setBusy(true);
     setMsg('');
     try {
@@ -110,6 +115,9 @@ export default function PartyPicker({
   async function saveChanges() {
     if (!selected) return;
     if (!form.name.trim()) return setMsg(`Enter the ${noun} name`);
+    if (list.some((p) => p.id !== selected.id && sameName(p.name, form.name))) {
+      return fail(new Error(`A ${noun} with this name already exists`));
+    }
     setBusy(true);
     setMsg('');
     try {

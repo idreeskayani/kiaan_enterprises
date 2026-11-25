@@ -3,13 +3,13 @@ import { useLocation, useNavigate, useParams, useSearchParams } from 'react-rout
 import { api, previewPdf } from '../api';
 import { ShareButton } from '../Share';
 import { Breakdown} from '../components';
+import PartyPicker from '../PartyPicker';
 
 type Item = { lengthCm: string; widthCm: string; heightCm: string; weightKg: string; qty: string };
 type Extra = { label: string; amount: string; currency: string; exRate: string };
 const blank: Item = { lengthCm: '', widthCm: '', heightCm: '', weightKg: '', qty: '1' };
 const num = (s: string) => Number(s) || 0;
 const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
-const NEW = '__new__';
 // Package sizes are saved in cm. The unit dropdown only changes what is typed; it is converted on save.
 const UNITS: Record<string, number> = { cm: 1, inch: 2.54, m: 100 };
 const SIZE_KEYS = ['lengthCm', 'widthCm', 'heightCm'] as const;
@@ -60,10 +60,6 @@ function QuotationForm({ editId, editType }: { editId?: string; editType?: 'quot
 
   // customer
   const [customerSel, setCustomerSel] = useState('');
-  const [cName, setCName] = useState('');
-  const [cPhone, setCPhone] = useState('');
-  const [cAddress, setCAddress] = useState('');
-  const [cTax, setCTax] = useState('');
 
   // route
   const [mode, setMode] = useState('AIR');
@@ -199,7 +195,7 @@ function QuotationForm({ editId, editType }: { editId?: string; editType?: 'quot
       .catch((err) => setError(err.message));
   }, [editId]);
 
-  const customerId = customerSel && customerSel !== NEW ? customerSel : '';
+  const customerId = customerSel;
   const names = NAMES[mode] ?? NAMES.AIR;
 
   // places typed before (optional suggestions)
@@ -327,27 +323,6 @@ function QuotationForm({ editId, editType }: { editId?: string; editType?: 'quot
   const setExtra = (idx: number, patch: Partial<Extra>) =>
     setExtras(extras.map((e, i) => (i === idx ? { ...e, ...patch } : e)));
   const setD = (k: string, v: string) => setDet({ ...det, [k]: v });
-
-  async function saveCustomer() {
-    if (!cName.trim()) return setError('Enter the customer name');
-    try {
-      const c = await api('/customers', {
-        method: 'POST',
-        body: {
-          name: cName.trim(),
-          phone: cPhone.trim() || undefined,
-          address: cAddress.trim() || undefined,
-          taxNumber: cTax.trim() || undefined,
-        },
-      });
-      setCustomers([...customers, c].sort((a, b) => a.name.localeCompare(b.name)));
-      setCustomerSel(c.id);
-      setCName(''); setCPhone(''); setCAddress(''); setCTax('');
-      setError('');
-    } catch (e) {
-      setError((e as Error).message);
-    }
-  }
 
   async function saveRateCard() {
     const o = origin.trim();
@@ -552,30 +527,16 @@ function QuotationForm({ editId, editType }: { editId?: string; editType?: 'quot
       
       <div className="card">
         <h3>Customer</h3>
-        <div className="row">
-          <div>
-            <label>Customer</label>
-            <select value={customerSel} onChange={(e) => setCustomerSel(e.target.value)}>
-              <option value="">Select...</option>
-              {customers.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-              <option value={NEW}>+ Add new customer</option>
-            </select>
-          </div>
-        </div>
-        {customerSel === NEW && (
-          <>
-            <br />
-            <div className="row">
-              <div><label>Name</label><input value={cName} onChange={(e) => setCName(e.target.value)} /></div>
-              <div><label>Phone</label><input value={cPhone} onChange={(e) => setCPhone(e.target.value)} /></div>
-              <div><label>Address</label><input value={cAddress} onChange={(e) => setCAddress(e.target.value)} /></div>
-              <div><label>NTN / Tax number</label><input value={cTax} onChange={(e) => setCTax(e.target.value)} /></div>
-              <button type="button" onClick={saveCustomer}>Save customer</button>
-            </div>
-          </>
-        )}
+        <PartyPicker
+          label="Customer"
+          noun="customer"
+          endpoint="/customers"
+          list={customers}
+          value={customerSel}
+          onChange={setCustomerSel}
+          onList={setCustomers}
+          onError={setError}
+        />
       </div>
 
       <div className="card">
