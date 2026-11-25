@@ -4,6 +4,7 @@ import Dashboard from './pages/Dashboard';
 import ExchangeRates from './pages/ExchangeRates';
 import Invoices from './pages/Invoices';
 import Debits from './pages/Debits';
+import Customers from './pages/Customers';
 import Login from './pages/login';
 import NewShipment from './pages/NewShipment';
 import ShipmentDetail from './pages/ShipmentDetail';
@@ -85,6 +86,7 @@ function Layout() {
             <NavLink to="/quotations">Quotations</NavLink>
             {freightStaff && <NavLink to="/shipments/new">Create new</NavLink>}
             <NavLink to="/invoices">Invoices</NavLink>
+            <NavLink to="/customers">Customers</NavLink>
             <NavLink to="/debits">Debits</NavLink>
             <NavLink to="/reports">Reports</NavLink>
             <NavLink to="/rates">Exchange rates</NavLink>
@@ -160,6 +162,7 @@ export default function App() {
           <Route path="shipments/:id" element={<ShipmentDetail />} />
           <Route path="invoices" element={<Invoices />} />
           <Route path="debits" element={<Debits />} />
+          <Route path="customers" element={<Customers />} />
           <Route path="reports" element={<Reports />} />
           <Route path="invoices/:id/edit" element={<NewShipment />} />
           <Route path="rates" element={<ExchangeRates />} />
