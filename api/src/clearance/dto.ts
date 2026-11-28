@@ -102,3 +102,18 @@ export class SaveClearanceReportDto {
   @IsOptional() @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'Dates must look like YYYY-MM-DD' }) from?: string;
   @IsOptional() @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'Dates must look like YYYY-MM-DD' }) to?: string;
 }
+
+
+export class ClearanceCustomerDto {
+  @IsString() @IsNotEmpty() name: string;
+  @IsOptional() @IsString() phone?: string;
+  @IsOptional() @IsString() address?: string;
+  @IsOptional() @IsString() taxNumber?: string;
+}
+
+export class UpdateClearanceCustomerDto {
+  @IsOptional() @IsString() @IsNotEmpty() name?: string;
+  @IsOptional() @IsString() phone?: string;
+  @IsOptional() @IsString() address?: string;
+  @IsOptional() @IsString() taxNumber?: string;
+}

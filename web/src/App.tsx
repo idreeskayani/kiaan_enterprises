@@ -5,6 +5,7 @@ import ExchangeRates from './pages/ExchangeRates';
 import Invoices from './pages/Invoices';
 import Debits from './pages/Debits';
 import Customers from './pages/Customers';
+import ClearanceCustomers from './pages/ClearanceCustomers';
 import Login from './pages/login';
 import NewShipment from './pages/NewShipment';
 import ShipmentDetail from './pages/ShipmentDetail';
@@ -77,6 +78,7 @@ function Layout() {
             <NavLink to="/clearance" end>Dashboard</NavLink>
             <NavLink to="/clearance/new">New invoice</NavLink>
             <NavLink to="/clearance/invoices">Invoices</NavLink>
+            <NavLink to="/clearance/customers">Customers</NavLink>
             <NavLink to="/reports">Reports</NavLink>
           </>
         ) : (
@@ -152,6 +154,7 @@ export default function App() {
           <Route path="clearance/new" element={<Only role="CLEARING_AGENT"><ClearanceNew /></Only>} />
           <Route path="clearance/jobs/:id" element={<Only role="CLEARING_AGENT"><ClearanceDetail /></Only>} />
           <Route path="clearance/invoices" element={<Only role="CLEARING_AGENT"><ClearanceInvoices /></Only>} />
+          <Route path="clearance/customers" element={<Only role="CLEARING_AGENT"><ClearanceCustomers /></Only>} />
 
           {/* freight side */}
           <Route path="quotations" element={<Quotations />} />

@@ -398,3 +398,15 @@ model Quotation {
   shipment   Shipment?       @relation(fields: [shipmentId], references: [id], onDelete: SetNull)
   createdAt  DateTime        @default(now())
 }
+
+
+// Saved clearance (TNI) customers. Jobs keep the customer name as text, so renaming a customer
+// here also renames it on the customer's jobs and statements.
+model ClearanceCustomer {
+  id        String   @id @default(uuid())
+  name      String
+  phone     String?
+  address   String?
+  taxNumber String?
+  createdAt DateTime @default(now())
+}

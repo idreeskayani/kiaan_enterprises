@@ -17,13 +17,16 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { Roles } from '../auth/roles.decorator.js';
 import { RolesGuard } from '../auth/roles.guard.js';
 import { ClearanceService } from './clearance.service.js';
+import { ClearanceCustomersService } from './clearance-customers.js';
 import { CLEARANCE_SCOPES, ClearanceReportsService } from './clearance-reports.service.js';
 import type { ClearanceScope } from './clearance-reports.service.js';
 import {
   ClearancePaymentDto,
+  ClearanceCustomerDto,
   ClearanceStatusDto,
   CreateClearanceDto,
   SaveClearanceReportDto,
+  UpdateClearanceCustomerDto,
   UpdateClearanceDto,
 } from './dto.js';
 
@@ -34,6 +37,7 @@ export class ClearanceController {
   constructor(
     private clearance: ClearanceService,
     private reports: ClearanceReportsService,
+    private customerBook: ClearanceCustomersService,
   ) {}
 
   @Get('stats')
@@ -45,6 +49,35 @@ export class ClearanceController {
   @Get('customers')
   customers() {
     return this.clearance.customers();
+  }
+
+  // ---- saved customers (Customers page)
+  @Get('customers/summary')
+  customerSummary() {
+    return this.customerBook.summary();
+  }
+
+  @Get('customers/:id/details')
+  customerDetails(@Param('id', ParseUUIDPipe) id: string) {
+    return this.customerBook.details(id);
+  }
+
+  @Post('customers')
+  @Roles(Role.CLEARING_AGENT)
+  createCustomer(@Body() dto: ClearanceCustomerDto) {
+    return this.customerBook.create(dto);
+  }
+
+  @Patch('customers/:id')
+  @Roles(Role.CLEARING_AGENT)
+  updateCustomer(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateClearanceCustomerDto) {
+    return this.customerBook.update(id, dto);
+  }
+
+  @Delete('customers/:id')
+  @Roles(Role.CLEARING_AGENT)
+  deleteCustomer(@Param('id', ParseUUIDPipe) id: string) {
+    return this.customerBook.remove(id);
   }
 
   // proof picture of one payment (loaded only when "View pic" is clicked)

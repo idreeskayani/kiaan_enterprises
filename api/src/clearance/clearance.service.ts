@@ -16,6 +16,7 @@ import { dayRange, inDayRange } from '../common/date-range.js';
 import { CreateClearanceDto, UpdateClearanceDto } from './dto.js';
 import { PaymentInfoDto } from '../invoices/dto.js';
 import { buildClearancePdf } from './clearance.pdf.js';
+import { resolveClearanceCustomer } from './clearance-customers.js';
 import {
   BILTY_CHARGE_CODE,
   CHARGE_CODES,
@@ -201,9 +202,15 @@ export class ClearanceService {
 
   async create(dto: CreateClearanceDto, userId: string) {
     if (!dto.customerName?.trim()) throw new BadRequestException('Enter the customer name');
+    // an existing customer (any capitals / spacing) is reused, a new one is saved: no duplicates
+    const customerName = await resolveClearanceCustomer(this.prisma, dto.customerName, {
+      phone: dto.customerPhone,
+      address: dto.customerAddress,
+      taxNumber: dto.customerTax,
+    });
     const job = await this.prisma.clearanceJob.create({
       data: {
-        customerName: dto.customerName.trim(),
+        customerName,
         customerAddress: dto.customerAddress?.trim() || null,
         customerPhone: dto.customerPhone?.trim() || null,
         customerTax: dto.customerTax?.trim() || null,
@@ -299,11 +306,18 @@ export class ClearanceService {
     const containers = this.cleanContainers(dto.containers ?? job.containers);
     const { lines, total } = this.build(source, { psid, nocs, bilty });
     const text = (v: string | undefined) => (v === undefined ? undefined : v.trim() || null);
+    const customerName = dto.customerName?.trim()
+      ? await resolveClearanceCustomer(this.prisma, dto.customerName, {
+          phone: dto.customerPhone,
+          address: dto.customerAddress,
+          taxNumber: dto.customerTax,
+        })
+      : undefined;
 
     await this.prisma.clearanceJob.update({
       where: { id },
       data: {
-        customerName: dto.customerName?.trim() || undefined,
+        customerName,
         customerAddress: text(dto.customerAddress),
         customerPhone: text(dto.customerPhone),
         customerTax: text(dto.customerTax),

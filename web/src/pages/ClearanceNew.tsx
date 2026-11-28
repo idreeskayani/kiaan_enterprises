@@ -12,31 +12,21 @@ export default function ClearanceNew() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
-  // previous customers (newest first, one entry per name)
+  // saved customers (one entry per name)
   useEffect(() => {
-    api('/clearance')
-      .then((rows: any[]) => {
-        const seen = new Set<string>();
-        const list: any[] = [];
-        for (const r of rows) {
-          const k = String(r.customerName).trim().toLowerCase();
-          if (!k || seen.has(k)) continue;
-          seen.add(k);
-          list.push(r);
-        }
-        setPrev(list);
-      })
+    api('/clearance/customers/summary')
+      .then(setPrev)
       .catch(() => setPrev([]));
   }, []);
 
-  // typing or picking a previous customer fills the address, phone and NTN
+  // typing or picking a saved customer fills the address, phone and NTN
   function pickName(v: string) {
     setCName(v);
-    const hit = prev.find((c) => String(c.customerName).trim().toLowerCase() === v.trim().toLowerCase());
+    const hit = prev.find((c) => String(c.name).trim().toLowerCase() === v.trim().toLowerCase());
     if (hit) {
-      setCAddress(hit.customerAddress ?? '');
-      setCPhone(hit.customerPhone ?? '');
-      setCTax(hit.customerTax ?? '');
+      setCAddress(hit.address ?? '');
+      setCPhone(hit.phone ?? '');
+      setCTax(hit.taxNumber ?? '');
     }
   }
 
@@ -69,7 +59,7 @@ export default function ClearanceNew() {
         <input list="prev-customers" placeholder="Enter Customer Name" value={cName}
           onChange={(e) => pickName(e.target.value)} />
         <datalist id="prev-customers">
-          {prev.map((c) => <option key={c.id} value={c.customerName} />)}
+          {prev.map((c) => <option key={c.id} value={c.name} />)}
         </datalist>
         <div className="row" style={{ marginTop: 8 }}>
           <div style={{ flex: 3 }}>
